@@ -550,7 +550,7 @@ PAGE_INDEX = """<!doctype html>
     header { flex-direction:column; align-items:flex-start; }
     header > div { width:100%; justify-content:flex-start; flex-wrap:wrap; }
     .toolbar { flex-direction:column; align-items:stretch; }
-    .toolbar .group { width:100%; }
+    .toolbar .group { width:100%; flex:0 0 auto; }
     .toolbar .group > * { flex:1 1 auto; width:100%; }
     input[type="search"], select, button { width:100%; }
     .toolbar .group.search-group { flex-wrap:nowrap; }
