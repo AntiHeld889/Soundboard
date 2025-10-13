@@ -74,6 +74,10 @@ DEFAULT_CONFIG = {
     "alsa_card_index": 1,
     "mixer_candidates": ["Speaker", "PCM", "Master", "Headphone"],
 
+    # Kategorien
+    "categories": [],
+    "file_categories": {},
+
     # Servo/Sync
     "sync_lead_ms": 180,
     "servo_gpio": 17,     # None = deaktiviert
@@ -169,6 +173,8 @@ def load_config():
         except Exception as e:
             set_last_error(f"Config lesen fehlgeschlagen ({CONFIG_PATH}): {e}")
     _normalize_gpio_in_cfg()
+    cfg.setdefault("categories", [])
+    cfg.setdefault("file_categories", {})
     cfg["live_config"] = _merge_defaults(cfg.get("live_config", {}), DEFAULT_CONFIG["live_config"])
 
 def save_config():
@@ -181,9 +187,14 @@ def save_config():
 
 def list_mp3s():
     files = []
+    assignments = cfg.get("file_categories", {})
     for pattern in ("*.mp3","*.MP3"):
         for p in sorted(SOUND_DIR.glob(pattern)):
-            files.append({"name": p.stem.replace("_"," "), "file": p.name})
+            files.append({
+                "name": p.stem.replace("_"," "),
+                "file": p.name,
+                "category": assignments.get(p.name)
+            })
     return files
 
 def resolve_file(fn):
@@ -474,14 +485,22 @@ PAGE_INDEX = """<!doctype html>
   .toolbar { display:flex; gap:12px; align-items:center; margin:12px 0 14px; flex-wrap:wrap; }
   input[type="search"] { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); min-width:260px; font-size:16px; background:var(--button-bg); color:var(--fg); }
   input[type="search"]::placeholder { color: var(--muted); }
+  input[type="text"], select { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); }
+  select { min-width:180px; }
   button { padding:10px 14px; border-radius:var(--radius); border:1px solid var(--border); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
   button:hover { background:var(--button-hover); border-color:var(--border-strong); }
+  .toolbar .group { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .list { display:flex; flex-direction:column; gap:8px; }
   .item { display:flex; justify-content:space-between; align-items:center; border:1px solid var(--border); border-radius:var(--radius); padding: var(--pad); background:var(--card-bg); transition:background 0.2s, border-color 0.2s; }
   .left { display:flex; flex-direction:column; gap:4px; }
   .name { font-weight:600; }
   .playing { outline:2px solid var(--accent); }
   .meta { font-size:12px; color:var(--muted); }
+  .meta.ok { color:var(--ok); }
+  .meta.err { color:var(--err); }
+  .right { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .right select { min-width:160px; }
+  .catLabel { font-size:12px; color:var(--muted); }
   .err { color:var(--err); font-weight:600; }
 </style>
 </head>
@@ -496,17 +515,46 @@ PAGE_INDEX = """<!doctype html>
   </header>
 
   <div class="toolbar">
-      <input id="q" type="search" placeholder="Suche nach Titel/Datei …" autocomplete="off" />
-      <button id="clearBtn">✖</button>
+      <div class="group">
+        <input id="q" type="search" placeholder="Suche nach Titel/Datei …" autocomplete="off" />
+        <button id="clearBtn">✖</button>
+      </div>
+      <div class="group">
+        <select id="catFilter">
+          <option value="">Alle Kategorien</option>
+          {% for cat in categories %}
+            <option value="{{cat|e}}">{{cat}}</option>
+          {% endfor %}
+        </select>
+      </div>
       <button id="stopBtn">⏹ Stop</button>
       <span class="meta" id="meta"></span>
   </div>
 
+  <div class="toolbar">
+      <div class="group">
+        <input id="newCat" type="text" placeholder="Neue Kategorie …" autocomplete="off" />
+        <button id="addCatBtn">➕ Hinzufügen</button>
+      </div>
+      <span class="meta" id="catMsg"></span>
+  </div>
+
   <div id="list" class="list">
     {% for s in sounds %}
-      <div class="item" data-name="{{s.name|e}}" data-file="{{s.file|e}}">
-        <div class="left"><div class="name">{{s.name}}</div></div>
-        <div class="right"><button class="playBtn" data-file="{{s.file|e}}">▶ Abspielen</button></div>
+      <div class="item" data-name="{{s.name|e}}" data-file="{{s.file|e}}" data-category="{{ (s.category or '')|e }}">
+        <div class="left">
+          <div class="name">{{s.name}}</div>
+          <div class="catLabel">{% if s.category %}{{s.category}}{% else %}Keine Kategorie{% endif %}</div>
+        </div>
+        <div class="right">
+          <select class="catSelect" data-file="{{s.file|e}}">
+            <option value="" {% if not s.category %}selected{% endif %}>Keine Kategorie</option>
+            {% for cat in categories %}
+              <option value="{{cat|e}}" {% if s.category==cat %}selected{% endif %}>{{cat}}</option>
+            {% endfor %}
+          </select>
+          <button class="playBtn" data-file="{{s.file|e}}">▶ Abspielen</button>
+        </div>
       </div>
     {% endfor %}
   </div>
@@ -560,31 +608,109 @@ if(window.matchMedia){
   }catch(e){}
 }
 
-const q=document.getElementById('q'), clearBtn=document.getElementById('clearBtn');
-const list=document.getElementById('list'), meta=document.getElementById('meta');
-const stopBtn=document.getElementById('stopBtn'), errorLabel=document.getElementById('errorLabel'), devLabel=document.getElementById('devLabel');
+const q=document.getElementById('q');
+const clearBtn=document.getElementById('clearBtn');
+const catFilter=document.getElementById('catFilter');
+const newCatInput=document.getElementById('newCat');
+const addCatBtn=document.getElementById('addCatBtn');
+const catMsg=document.getElementById('catMsg');
+const list=document.getElementById('list');
+const meta=document.getElementById('meta');
+const stopBtn=document.getElementById('stopBtn');
+const errorLabel=document.getElementById('errorLabel');
+const devLabel=document.getElementById('devLabel');
+
+let categories={{ categories|tojson }};
+let assignments={{ assignments|tojson }};
+if(!Array.isArray(categories)) categories=[];
+if(!assignments || typeof assignments!=='object') assignments={};
 
 function norm(s){ return (s||'').toLowerCase().normalize('NFKD'); }
+function setCatMsg(text, ok){
+  if(!catMsg) return;
+  if(!text){ catMsg.textContent=''; catMsg.className='meta'; return; }
+  catMsg.textContent=text;
+  catMsg.className='meta ' + (ok ? 'ok' : 'err');
+}
+function fillCategorySelect(select, selectedValue){
+  if(!select) return;
+  while(select.options.length) select.remove(0);
+  const noneOpt=document.createElement('option');
+  noneOpt.value='';
+  noneOpt.textContent='Keine Kategorie';
+  select.appendChild(noneOpt);
+  for(const cat of categories){
+    const opt=document.createElement('option');
+    opt.value=cat;
+    opt.textContent=cat;
+    select.appendChild(opt);
+  }
+  select.value = selectedValue && categories.includes(selectedValue) ? selectedValue : '';
+}
 function applyFilter(){
-  const needle=norm(q.value.trim()); const items=[...list.querySelectorAll('.item')];
+  const items = list ? [...list.querySelectorAll('.item')] : [];
+  const needle=norm(q ? q.value.trim() : '');
+  const selectedCat = catFilter ? catFilter.value : '';
   let shown=0;
   for(const el of items){
-    const hay=norm(el.dataset.name + " " + el.dataset.file);
-    const match=!needle || hay.includes(needle);
+    const hay=norm((el.dataset.name||'') + " " + (el.dataset.file||''));
+    const matchesText=!needle || hay.includes(needle);
+    const matchesCat=!selectedCat || (el.dataset.category===selectedCat);
+    const match=matchesText && matchesCat;
     el.style.display = match ? "" : "none";
     if(match) shown++;
   }
-  meta.textContent = shown + " / " + items.length + " sichtbar";
+  if(meta) meta.textContent = shown + " / " + items.length + " sichtbar";
+}
+function updateCategoryUI(){
+  const values = Object.values(assignments||{});
+  for(const cat of values){
+    if(cat && !categories.includes(cat)) categories.push(cat);
+  }
+  if(catFilter){
+    const prev = catFilter.value;
+    while(catFilter.options.length) catFilter.remove(0);
+    const allOpt=document.createElement('option');
+    allOpt.value=''; allOpt.textContent='Alle Kategorien';
+    catFilter.appendChild(allOpt);
+    for(const cat of categories){
+      const opt=document.createElement('option');
+      opt.value=cat; opt.textContent=cat; catFilter.appendChild(opt);
+    }
+    if(prev && categories.includes(prev)) catFilter.value=prev; else catFilter.value='';
+  }
+  document.querySelectorAll('.item').forEach(el=>{
+    const file=el.dataset.file;
+    const cat=assignments[file] || '';
+    el.dataset.category = cat;
+    const label=el.querySelector('.catLabel');
+    if(label) label.textContent = cat ? cat : 'Keine Kategorie';
+    fillCategorySelect(el.querySelector('.catSelect'), cat);
+  });
+  applyFilter();
 }
 async function loadInfo(){
   try{ const r=await fetch('/info'); const j=await r.json();
-       devLabel.textContent = (j.alsa_device||"–") + (j.card_index!==undefined?(" (Karte "+j.card_index+")"):"");
-  }catch(e){ devLabel.textContent="unbekannt"; }
+       if(devLabel) devLabel.textContent = (j.alsa_device||"–") + (j.card_index!==undefined?(" (Karte "+j.card_index+")"):"");
+  }catch(e){ if(devLabel) devLabel.textContent="unbekannt"; }
+}
+async function loadCategories(){
+  try{
+    const res=await fetch('/categories');
+    const j=await res.json();
+    if(!res.ok || !j.ok) throw new Error(j.error||'Kategorien konnten nicht geladen werden');
+    categories=Array.isArray(j.categories)?j.categories:[];
+    assignments=j.assignments&&typeof j.assignments==='object'?j.assignments:{};
+    setCatMsg('', true);
+    updateCategoryUI();
+  }catch(e){
+    setCatMsg(e.message||'Kategorien konnten nicht geladen werden', false);
+  }
 }
 function setBusy(isBusy, txt){
-  if(txt) meta.textContent=txt;
+  if(txt && meta) meta.textContent=txt;
   document.querySelectorAll('button.playBtn').forEach(b=>b.disabled=isBusy);
-  stopBtn.disabled = isBusy;
+  if(stopBtn) stopBtn.disabled = isBusy;
 }
 function markPlaying(file){
   document.querySelectorAll('.item').forEach(el=>{
@@ -592,24 +718,66 @@ function markPlaying(file){
   });
 }
 async function play(file){
-  errorLabel.textContent="";
+  if(!file) return;
+  if(errorLabel) errorLabel.textContent="";
   setBusy(true, "Spiele: "+file);
   try{
     const res=await fetch('/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file})});
     const j=await res.json();
     if(!res.ok || !j.ok) throw new Error(j.error||'Fehler');
     setBusy(false, "Läuft: "+(j.now_playing||file)); markPlaying(j.now_playing||file);
-  }catch(e){ setBusy(false,"Fehler: "+e.message); errorLabel.textContent=e.message; }
+  }catch(e){ setBusy(false,"Fehler: "+e.message); if(errorLabel) errorLabel.textContent=e.message; }
 }
 async function stop(){
   setBusy(true,"Stoppe…"); try{ await fetch('/stop',{method:'POST'});}catch(e){}
   setBusy(false,"Bereit"); markPlaying("__none__");
 }
-q.addEventListener('input', applyFilter);
-clearBtn.addEventListener('click', ()=>{ q.value=""; applyFilter(); q.focus(); });
-stopBtn.addEventListener('click', stop);
-list.addEventListener('click', (e)=>{ const btn=e.target.closest('.playBtn'); if(!btn) return; play(btn.dataset.file); });
-window.addEventListener('DOMContentLoaded', ()=>{ applyFilter(); loadInfo(); });
+if(q) q.addEventListener('input', applyFilter);
+if(clearBtn) clearBtn.addEventListener('click', ()=>{ if(q){ q.value=""; applyFilter(); q.focus(); } });
+if(catFilter) catFilter.addEventListener('change', applyFilter);
+if(stopBtn) stopBtn.addEventListener('click', stop);
+if(addCatBtn) addCatBtn.addEventListener('click', async ()=>{
+  if(!newCatInput) return;
+  const name=newCatInput.value.trim();
+  if(!name){ setCatMsg('Bitte Namen eingeben', false); newCatInput.focus(); return; }
+  try{
+    const res=await fetch('/categories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    const j=await res.json();
+    if(!res.ok || !j.ok) throw new Error(j.error||'Kategorie konnte nicht gespeichert werden');
+    categories=Array.isArray(j.categories)?j.categories:categories;
+    if(j.assignments && typeof j.assignments==='object') assignments=j.assignments;
+    newCatInput.value='';
+    setCatMsg('Kategorie erstellt', true);
+    updateCategoryUI();
+  }catch(e){ setCatMsg(e.message||'Kategorie konnte nicht gespeichert werden', false); }
+});
+if(newCatInput) newCatInput.addEventListener('keydown', (ev)=>{
+  if(ev.key==='Enter'){ ev.preventDefault(); if(addCatBtn) addCatBtn.click(); }
+});
+if(list) list.addEventListener('click', (e)=>{ const btn=e.target.closest('.playBtn'); if(!btn) return; play(btn.dataset.file); });
+if(list) list.addEventListener('change', async (e)=>{
+  const sel=e.target.closest('.catSelect');
+  if(!sel) return;
+  const file=sel.dataset.file;
+  const prev=assignments[file]||'';
+  try{
+    const res=await fetch('/file-category',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file, category: sel.value})});
+    const j=await res.json();
+    if(!res.ok || !j.ok) throw new Error(j.error||'Kategorie konnte nicht gespeichert werden');
+    if(j.category) assignments[file]=j.category; else delete assignments[file];
+    setCatMsg('Kategorie gespeichert', true);
+    updateCategoryUI();
+  }catch(err){
+    if(prev) sel.value=prev; else sel.value='';
+    setCatMsg(err.message||'Kategorie konnte nicht gespeichert werden', false);
+    updateCategoryUI();
+  }
+});
+window.addEventListener('DOMContentLoaded', ()=>{
+  updateCategoryUI();
+  loadInfo();
+  loadCategories();
+});
 </script>
 </body>
 </html>
@@ -1273,7 +1441,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 # ===== Routes: Pages =====
 @app.get("/")
 def index():
-    return render_template_string(PAGE_INDEX, sounds=list_mp3s())
+    sounds = list_mp3s()
+    assignments = {s["file"]: s["category"] for s in sounds if s.get("category")}
+    return render_template_string(
+        PAGE_INDEX,
+        sounds=sounds,
+        categories=cfg.get("categories", []),
+        assignments=assignments
+    )
 
 @app.get("/settings")
 def settings():
@@ -1431,6 +1606,62 @@ def paths_post():
             return jsonify(error=f"CONFIG_PATH ungültig: {e}"), 400
     save_config(); ensure_dirs()
     return jsonify(ok=True, sound_dir=str(SOUND_DIR), config_path=str(CONFIG_PATH))
+
+def _normalize_category_name(name):
+    if name is None:
+        return None
+    if isinstance(name, str):
+        name = name.strip()
+        return name or None
+    return None
+
+def _ensure_category_structures():
+    cfg.setdefault("categories", [])
+    cfg.setdefault("file_categories", {})
+
+@app.get("/categories")
+def categories_get():
+    _ensure_category_structures()
+    existing_files = {p.name for p in SOUND_DIR.glob("*.mp3")} | {p.name for p in SOUND_DIR.glob("*.MP3")}
+    assignments = {fn: cat for fn, cat in cfg["file_categories"].items() if fn in existing_files}
+    # Entferne verwaiste Zuordnungen
+    removed = set(cfg["file_categories"].keys()) - set(assignments.keys())
+    if removed:
+        for key in removed:
+            cfg["file_categories"].pop(key, None)
+        save_config()
+    return jsonify(ok=True, categories=cfg["categories"], assignments=assignments)
+
+@app.post("/categories")
+def categories_post():
+    _ensure_category_structures()
+    data = request.get_json(silent=True) or {}
+    name = _normalize_category_name(data.get("name"))
+    if not name:
+        return jsonify(error="Name der Kategorie fehlt"), 400
+    if any(name.lower() == c.lower() for c in cfg["categories"]):
+        return jsonify(error="Kategorie existiert bereits"), 400
+    cfg["categories"].append(name)
+    save_config()
+    return jsonify(ok=True, categories=cfg["categories"], assignments=cfg["file_categories"])
+
+@app.post("/file-category")
+def file_category_post():
+    _ensure_category_structures()
+    data = request.get_json(silent=True) or {}
+    fn = data.get("file")
+    if not fn:
+        return jsonify(error="Parameter 'file' fehlt"), 400
+    resolve_file(fn)
+    cat = _normalize_category_name(data.get("category"))
+    if cat:
+        if not any(cat == c for c in cfg["categories"]):
+            return jsonify(error="Unbekannte Kategorie"), 400
+        cfg["file_categories"][fn] = cat
+    else:
+        cfg["file_categories"].pop(fn, None)
+    save_config()
+    return jsonify(ok=True, file=fn, category=cfg["file_categories"].get(fn))
 
 # ===== PortAudio Devices =====
 @app.get("/pa-devices")
