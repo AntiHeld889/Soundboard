@@ -31,6 +31,7 @@ from collections import deque
 from pathlib import Path
 
 from flask import Flask, request, jsonify, render_template_string, abort
+from werkzeug.utils import secure_filename
 
 import numpy as np
 from pydub import AudioSegment
@@ -526,6 +527,8 @@ PAGE_INDEX = """<!doctype html>
   input[type="search"] { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); min-width:180px; width:min(300px,100%); background:var(--button-bg); color:var(--fg); margin:0; }
   input[type="search"]::placeholder { color: var(--muted); }
   input[type="text"], select { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); width:auto; max-width:100%; margin:0; }
+  input[type="file"] { color: var(--fg); }
+  .upload-group input[type="file"] { padding:6px 0; }
   select { min-width:180px; }
   button { padding:8px 12px; border-radius:var(--radius); border:1px solid var(--border); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
   button:hover { background:var(--button-hover); border-color:var(--border-strong); }
@@ -595,11 +598,16 @@ PAGE_INDEX = """<!doctype html>
           {% endfor %}
         </select>
       </div>
+      <div class="group upload-group">
+        <input id="uploadInput" type="file" accept=".mp3,audio/mpeg" />
+        <button id="uploadBtn" type="button" title="MP3-Datei hochladen">⬆️ Hochladen</button>
+      </div>
       <button id="stopBtn" title="Wiedergabe stoppen">⏹ Stop</button>
   </div>
 
   <div class="toolbar status">
       <span class="meta" id="meta"></span>
+      <span class="meta" id="uploadMsg"></span>
       <span class="meta" id="catMsg"></span>
   </div>
 
@@ -675,6 +683,9 @@ if(window.matchMedia){
 const q=document.getElementById('q');
 const clearBtn=document.getElementById('clearBtn');
 const catFilter=document.getElementById('catFilter');
+const uploadInput=document.getElementById('uploadInput');
+const uploadBtn=document.getElementById('uploadBtn');
+const uploadMsg=document.getElementById('uploadMsg');
 const catMsg=document.getElementById('catMsg');
 const list=document.getElementById('list');
 const meta=document.getElementById('meta');
@@ -737,6 +748,48 @@ function setCatMsg(text, ok){
   catMsg.textContent=text;
   catMsg.className='meta ' + (ok ? 'ok' : 'err');
 }
+function setUploadMsg(text, ok){
+  if(!uploadMsg) return;
+  if(!text){ uploadMsg.textContent=''; uploadMsg.className='meta'; return; }
+  uploadMsg.textContent=text;
+  uploadMsg.className='meta ' + (ok ? 'ok' : 'err');
+}
+async function performUpload(){
+  if(!uploadInput) return;
+  const files = uploadInput.files;
+  if(!files || !files.length){
+    setUploadMsg('Bitte eine MP3-Datei auswählen.', false);
+    return;
+  }
+  const file = files[0];
+  if(!file || !file.name || !file.name.toLowerCase().endsWith('.mp3')){
+    setUploadMsg('Nur MP3-Dateien sind erlaubt.', false);
+    return;
+  }
+  setUploadMsg('Lade hoch …', true);
+  if(uploadBtn) uploadBtn.disabled = true;
+  uploadInput.disabled = true;
+  const fd = new FormData();
+  fd.append('file', file);
+  try{
+    const res = await fetch('/upload',{method:'POST', body: fd});
+    let j={};
+    try{ j = await res.json(); }
+    catch(e){ j={}; }
+    if(!res.ok || !j.ok){
+      throw new Error(j.error||'Upload fehlgeschlagen');
+    }
+    setUploadMsg('Upload erfolgreich. Aktualisiere …', true);
+    uploadInput.value='';
+    setTimeout(()=>{ window.location.reload(); }, 800);
+  }catch(e){
+    setUploadMsg(e && e.message ? e.message : 'Upload fehlgeschlagen', false);
+  }finally{
+    if(uploadBtn) uploadBtn.disabled = false;
+    uploadInput.disabled = false;
+  }
+}
+setUploadMsg('', true);
 function fillCategorySelect(select, selectedValues){
   if(!select) return;
   const selected=normalizeCategoriesList(selectedValues);
@@ -849,6 +902,8 @@ if(q) q.addEventListener('input', applyFilter);
 if(clearBtn) clearBtn.addEventListener('click', ()=>{ if(q){ q.value=""; applyFilter(); q.focus(); } });
 if(catFilter) catFilter.addEventListener('change', applyFilter);
 if(stopBtn) stopBtn.addEventListener('click', stop);
+if(uploadBtn) uploadBtn.addEventListener('click', performUpload);
+if(uploadInput) uploadInput.addEventListener('change', ()=>{ if(uploadInput.files && uploadInput.files.length){ setUploadMsg('', true); } });
 if(list) list.addEventListener('click', (e)=>{ const btn=e.target.closest('.playBtn'); if(!btn) return; play(btn.dataset.file); });
 if(list) list.addEventListener('change', async (e)=>{
   const sel=e.target.closest('.catSelect');
@@ -1788,6 +1843,32 @@ def device_post():
     cfg["alsa_card_index"] = device_to_card_index(alsa)
     save_config()
     return jsonify(ok=True, alsa_device=cfg["alsa_device"], alsa_card_index=cfg["alsa_card_index"])
+
+@app.post("/upload")
+def upload_mp3():
+    ensure_dirs()
+    if "file" not in request.files:
+        return jsonify(error="Keine Datei übermittelt."), 400
+    upl = request.files["file"]
+    if not upl or not upl.filename:
+        return jsonify(error="Keine Datei ausgewählt."), 400
+    filename = secure_filename(upl.filename)
+    if not filename:
+        return jsonify(error="Ungültiger Dateiname."), 400
+    if not filename.lower().endswith(".mp3"):
+        return jsonify(error="Nur MP3-Dateien (.mp3) sind erlaubt."), 400
+    target = SOUND_DIR / filename
+    if target.exists():
+        return jsonify(error="Datei existiert bereits."), 409
+    try:
+        upl.save(target)
+    except Exception as e:
+        set_last_error(f"Upload fehlgeschlagen: {e}")
+        if target.exists():
+            try: target.unlink()
+            except Exception: pass
+        return jsonify(error="Upload fehlgeschlagen."), 500
+    return jsonify(ok=True, file=target.name)
 
 @app.get("/volume")
 def volume_get():
