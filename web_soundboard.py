@@ -1871,6 +1871,7 @@ def live_stop():
     live_proc["mode"] = None
     live_proc["args"] = None
     live_log.clear()
+    power_off()
     return jsonify(ok=True, stopped=True)
 
 @app.post("/live-start")
