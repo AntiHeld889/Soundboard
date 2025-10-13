@@ -84,6 +84,7 @@ Alle Funktionen des Soundboards stehen zusätzlich als JSON-API zur Verfügung. 
 * `POST /play` – Startet eine MP3-Datei. Payload: `{ "file": "<name>.mp3" }` plus optional `"category"` oder `"gain_db"`.
 * `POST /stop` – Stoppt die Wiedergabe (optional `"all": true` für Hard-Stop).
 * `POST /test-tone` – Spielt einen Sinuston (Frequenz/Level konfigurierbar).
+* `POST /upload` – Lädt eine neue MP3-Datei in das Sound-Verzeichnis hoch.
 
 ### Konfiguration
 
