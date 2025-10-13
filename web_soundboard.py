@@ -422,28 +422,74 @@ PAGE_INDEX = """<!doctype html>
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Soundboard</title>
+<script>
+(function(){
+  try{
+    const stored = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const theme = stored || (prefersDark ? 'dark' : 'light');
+    const root = document.documentElement;
+    root.classList.toggle('dark', theme === 'dark');
+    root.dataset.theme = theme;
+  }catch(e){}
+})();
+</script>
 <style>
-  :root { --pad: 14px; --radius: 14px; }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 18px; color:#111; background:#fafafa;}
+  :root {
+    --pad: 14px;
+    --radius: 14px;
+    --bg: #fafafa;
+    --fg: #111;
+    --card-bg: #ffffff;
+    --card-alt: #f0f0f0;
+    --border: #d8d8d8;
+    --border-strong: #c0c0c0;
+    --button-bg: #ffffff;
+    --button-hover: #f0f0f0;
+    --muted: #666666;
+    --err: #ff5252;
+    --ok: #2e7d32;
+    --accent: #2e7d32;
+  }
+  .dark {
+    --bg: #121212;
+    --fg: #f1f1f1;
+    --card-bg: #1e1e1e;
+    --card-alt: #232323;
+    --border: #3a3a3a;
+    --border-strong: #4a4a4a;
+    --button-bg: #1e1e1e;
+    --button-hover: #2a2a2a;
+    --muted: #a0a0a0;
+    --err: #ff6b6b;
+    --ok: #8bc34a;
+    --accent: #81c784;
+  }
+  html, body { background: var(--bg); color: var(--fg); }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 18px; transition: background 0.3s, color 0.3s; }
   header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
   h1 { margin:0; font-size:22px; }
-  a.btn { text-decoration:none; border:1px solid #ddd; padding:8px 12px; border-radius:var(--radius); color:#111; background:#fff; }
+  a.btn, button.btn { text-decoration:none; border:1px solid var(--border); padding:8px 12px; border-radius:var(--radius); color:var(--fg); background:var(--button-bg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+  a.btn:hover, button.btn:hover { background:var(--button-hover); border-color:var(--border-strong); }
   .toolbar { display:flex; gap:12px; align-items:center; margin:12px 0 14px; flex-wrap:wrap; }
-  input[type="search"] { padding:10px 12px; border:1px solid #ddd; border-radius:var(--radius); min-width:260px; font-size:16px; background:#fff; }
-  button { padding:10px 14px; border-radius:var(--radius); border:1px solid #ccc; background:#fff; cursor:pointer; }
+  input[type="search"] { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); min-width:260px; font-size:16px; background:var(--button-bg); color:var(--fg); }
+  input[type="search"]::placeholder { color: var(--muted); }
+  button { padding:10px 14px; border-radius:var(--radius); border:1px solid var(--border); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+  button:hover { background:var(--button-hover); border-color:var(--border-strong); }
   .list { display:flex; flex-direction:column; gap:8px; }
-  .item { display:flex; justify-content:space-between; align-items:center; border:1px solid #eee; border-radius:var(--radius); padding: var(--pad); background:#fff; }
+  .item { display:flex; justify-content:space-between; align-items:center; border:1px solid var(--border); border-radius:var(--radius); padding: var(--pad); background:var(--card-bg); transition:background 0.2s, border-color 0.2s; }
   .left { display:flex; flex-direction:column; gap:4px; }
   .name { font-weight:600; }
-  .playing { outline:2px solid #2e7d32; }
-  .meta { font-size:12px; color:#666; }
-  .err { color:#b00020; font-weight:600; }
+  .playing { outline:2px solid var(--accent); }
+  .meta { font-size:12px; color:var(--muted); }
+  .err { color:var(--err); font-weight:600; }
 </style>
 </head>
 <body>
   <header>
     <h1>🎵 Raspberry Pi Soundboard</h1>
     <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn" id="themeToggle" type="button">🌙 Dunkel</button>
       <a class="btn" href="/live">🎙️ Live</a>
       <a class="btn" href="/settings">⚙️ Einstellungen</a>
     </div>
@@ -471,6 +517,49 @@ PAGE_INDEX = """<!doctype html>
   </div>
 
 <script>
+const themeToggle=document.getElementById('themeToggle');
+const root=document.documentElement;
+
+function setTheme(theme, store=true){
+  root.classList.toggle('dark', theme === 'dark');
+  root.dataset.theme = theme;
+  if(store){
+    try{ localStorage.setItem('theme', theme); }catch(e){}
+  }
+  if(themeToggle){ themeToggle.textContent = theme === 'dark' ? '☀️ Hell' : '🌙 Dunkel'; }
+}
+
+function initTheme(){
+  let theme = 'light';
+  try{
+    const stored = localStorage.getItem('theme');
+    if(stored){ theme = stored; }
+    else if(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches){
+      theme = 'dark';
+    }
+  }catch(e){}
+  setTheme(theme, false);
+}
+
+initTheme();
+if(themeToggle){
+  themeToggle.addEventListener('click', ()=>{
+    const next = root.classList.contains('dark') ? 'light' : 'dark';
+    setTheme(next);
+  });
+}
+if(window.matchMedia){
+  try{
+    const mm = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (ev)=>{
+      try{ if(localStorage.getItem('theme')) return; }catch(e){}
+      setTheme(ev.matches ? 'dark' : 'light', false);
+    };
+    if(typeof mm.addEventListener === 'function') mm.addEventListener('change', handler);
+    else if(typeof mm.addListener === 'function') mm.addListener(handler);
+  }catch(e){}
+}
+
 const q=document.getElementById('q'), clearBtn=document.getElementById('clearBtn');
 const list=document.getElementById('list'), meta=document.getElementById('meta');
 const stopBtn=document.getElementById('stopBtn'), errorLabel=document.getElementById('errorLabel'), devLabel=document.getElementById('devLabel');
@@ -531,18 +620,63 @@ PAGE_SETTINGS = """<!doctype html>
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Einstellungen</title>
+<script>
+(function(){
+  try{
+    const stored = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const theme = stored || (prefersDark ? 'dark' : 'light');
+    const root = document.documentElement;
+    root.classList.toggle('dark', theme === 'dark');
+    root.dataset.theme = theme;
+  }catch(e){}
+})();
+</script>
 <style>
-  :root { --radius: 14px; }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:18px; color:#111; background:#fafafa;}
+  :root {
+    --radius: 14px;
+    --bg: #fafafa;
+    --fg: #111;
+    --card-bg: #ffffff;
+    --card-alt: #f0f0f0;
+    --border: #d8d8d8;
+    --border-strong: #c0c0c0;
+    --button-bg: #ffffff;
+    --button-hover: #f0f0f0;
+    --muted: #666666;
+    --err: #ff5252;
+    --ok: #2e7d32;
+    --accent: #2e7d32;
+  }
+  .dark {
+    --bg: #121212;
+    --fg: #f1f1f1;
+    --card-bg: #1e1e1e;
+    --card-alt: #232323;
+    --border: #3a3a3a;
+    --border-strong: #4a4a4a;
+    --button-bg: #1e1e1e;
+    --button-hover: #2a2a2a;
+    --muted: #a0a0a0;
+    --err: #ff6b6b;
+    --ok: #8bc34a;
+    --accent: #81c784;
+  }
+  html, body { background: var(--bg); color: var(--fg); }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:18px; transition: background 0.3s, color 0.3s; }
   header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
   h1 { margin:0; font-size:22px; }
-  a.btn { text-decoration:none; border:1px solid #ddd; padding:8px 12px; border-radius:var(--radius); background:#fff; }
-  .card { border:1px solid #eee; border-radius:var(--radius); padding:16px; margin:12px 0; background:#fff; }
+  a.btn, button.btn { text-decoration:none; border:1px solid var(--border); padding:8px 12px; border-radius:var(--radius); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+  a.btn:hover, button.btn:hover { background:var(--button-hover); border-color:var(--border-strong); }
+  .card { border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin:12px 0; background:var(--card-bg); transition:background 0.2s, border-color 0.2s; }
   .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  select, button, input[type="range"], input[type="number"], input[type="text"] { padding:10px 12px; border:1px solid #ccc; border-radius:var(--radius); background:#fff; }
-  .hint { font-size:12px; color:#666; }
-  pre { background:#fafafa; padding:12px; border-radius:var(--radius); overflow:auto; }
-  .ok { color:#2e7d32; } .err { color:#b00020; font-weight:600; }
+  select, button, input[type="range"], input[type="number"], input[type="text"] { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); transition:background 0.2s, border-color 0.2s; }
+  select:hover, button:hover, input[type="text"]:hover, input[type="number"]:hover { border-color:var(--border-strong); }
+  input[type="range"] { accent-color: var(--accent); }
+  .hint { font-size:12px; color:var(--muted); }
+  pre { background:var(--card-alt); padding:12px; border-radius:var(--radius); overflow:auto; border:1px solid var(--border); transition:background 0.2s, border-color 0.2s; }
+  .ok { color:var(--ok); }
+  .err { color:var(--err); font-weight:600; }
   label { min-width: 160px; display:inline-block; }
 </style>
 </head>
@@ -550,6 +684,7 @@ PAGE_SETTINGS = """<!doctype html>
   <header>
     <h1>⚙️ Einstellungen</h1>
     <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn" id="themeToggle" type="button">🌙 Dunkel</button>
       <a class="btn" href="/">⬅️ Zurück</a>
       <a class="btn" href="/live">🎙️ Live</a>
     </div>
@@ -648,6 +783,49 @@ PAGE_SETTINGS = """<!doctype html>
   </div>
 
 <script>
+const themeToggle=document.getElementById('themeToggle');
+const root=document.documentElement;
+
+function setTheme(theme, store=true){
+  root.classList.toggle('dark', theme === 'dark');
+  root.dataset.theme = theme;
+  if(store){
+    try{ localStorage.setItem('theme', theme); }catch(e){}
+  }
+  if(themeToggle){ themeToggle.textContent = theme === 'dark' ? '☀️ Hell' : '🌙 Dunkel'; }
+}
+
+function initTheme(){
+  let theme = 'light';
+  try{
+    const stored = localStorage.getItem('theme');
+    if(stored){ theme = stored; }
+    else if(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches){
+      theme = 'dark';
+    }
+  }catch(e){}
+  setTheme(theme, false);
+}
+
+initTheme();
+if(themeToggle){
+  themeToggle.addEventListener('click', ()=>{
+    const next = root.classList.contains('dark') ? 'light' : 'dark';
+    setTheme(next);
+  });
+}
+if(window.matchMedia){
+  try{
+    const mm = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (ev)=>{
+      try{ if(localStorage.getItem('theme')) return; }catch(e){}
+      setTheme(ev.matches ? 'dark' : 'light', false);
+    };
+    if(typeof mm.addEventListener === 'function') mm.addEventListener('change', handler);
+    else if(typeof mm.addListener === 'function') mm.addListener(handler);
+  }catch(e){}
+}
+
 async function fetchJSON(u, opt){ const r=await fetch(u, opt||{}); const j=await r.json(); if(!r.ok) throw new Error(j.error||'Fehler'); return j; }
 const devSel=document.getElementById('devSel'), applyDev=document.getElementById('applyDev'), testTone=document.getElementById('testTone');
 const curDev=document.getElementById('curDev'), curCard=document.getElementById('curCard'), vol=document.getElementById('vol'), volLabel=document.getElementById('volLabel'), muteBtn=document.getElementById('muteBtn'), ctlHint=document.getElementById('ctlHint');
@@ -687,18 +865,63 @@ PAGE_LIVE = """<!doctype html>
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Live Mikrofon</title>
+<script>
+(function(){
+  try{
+    const stored = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const theme = stored || (prefersDark ? 'dark' : 'light');
+    const root = document.documentElement;
+    root.classList.toggle('dark', theme === 'dark');
+    root.dataset.theme = theme;
+  }catch(e){}
+})();
+</script>
 <style>
-  :root { --radius: 14px; }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:18px; color:#111; background:#fafafa;}
+  :root {
+    --radius: 14px;
+    --bg: #fafafa;
+    --fg: #111;
+    --card-bg: #ffffff;
+    --card-alt: #f0f0f0;
+    --border: #d8d8d8;
+    --border-strong: #c0c0c0;
+    --button-bg: #ffffff;
+    --button-hover: #f0f0f0;
+    --muted: #666666;
+    --err: #ff5252;
+    --ok: #2e7d32;
+    --accent: #2e7d32;
+  }
+  .dark {
+    --bg: #121212;
+    --fg: #f1f1f1;
+    --card-bg: #1e1e1e;
+    --card-alt: #232323;
+    --border: #3a3a3a;
+    --border-strong: #4a4a4a;
+    --button-bg: #1e1e1e;
+    --button-hover: #2a2a2a;
+    --muted: #a0a0a0;
+    --err: #ff6b6b;
+    --ok: #8bc34a;
+    --accent: #81c784;
+  }
+  html, body { background: var(--bg); color: var(--fg); }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:18px; transition: background 0.3s, color 0.3s; }
   header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
   h1 { margin:0; font-size:22px; }
-  a.btn, button { text-decoration:none; border:1px solid #ddd; padding:8px 12px; border-radius:var(--radius); background:#fff; cursor:pointer; }
-  .card { border:1px solid #eee; border-radius:var(--radius); padding:16px; margin:12px 0; background:#fff; }
+  a.btn, button.btn { text-decoration:none; border:1px solid var(--border); padding:8px 12px; border-radius:var(--radius); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+  a.btn:hover, button.btn:hover { background:var(--button-hover); border-color:var(--border-strong); }
+  button { border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); padding:8px 12px; cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+  button:hover { background:var(--button-hover); border-color:var(--border-strong); }
+  .card { border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin:12px 0; background:var(--card-bg); transition:background 0.2s, border-color 0.2s; }
   .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  select, input[type="number"], input[type="text"] { padding:8px 10px; border:1px solid #ccc; border-radius:var(--radius); }
-  .hint { font-size:12px; color:#666; }
-  pre { background:#fafafa; padding:12px; border-radius:var(--radius); overflow:auto; max-height:260px; }
-  .ok { color:#2e7d32; } .err { color:#b00020; font-weight:600; }
+  select, input[type="number"], input[type="text"] { padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); transition:background 0.2s, border-color 0.2s; }
+  select:hover, input[type="number"]:hover, input[type="text"]:hover { border-color:var(--border-strong); }
+  .hint { font-size:12px; color:var(--muted); }
+  pre { background:var(--card-alt); padding:12px; border-radius:var(--radius); overflow:auto; max-height:260px; border:1px solid var(--border); transition:background 0.2s, border-color 0.2s; }
+  .ok { color:var(--ok); } .err { color:var(--err); font-weight:600; }
   label { min-width: 180px; display:inline-block; }
 </style>
 </head>
@@ -706,6 +929,7 @@ PAGE_LIVE = """<!doctype html>
   <header>
     <h1>🎙️ Live Mikrofon</h1>
     <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn" id="themeToggle" type="button">🌙 Dunkel</button>
       <a class="btn" href="/">⬅️ Sounds</a>
       <a class="btn" href="/settings">⚙️ Einstellungen</a>
     </div>
@@ -808,6 +1032,49 @@ PAGE_LIVE = """<!doctype html>
   </div>
 
 <script>
+const themeToggle=document.getElementById('themeToggle');
+const root=document.documentElement;
+
+function setTheme(theme, store=true){
+  root.classList.toggle('dark', theme === 'dark');
+  root.dataset.theme = theme;
+  if(store){
+    try{ localStorage.setItem('theme', theme); }catch(e){}
+  }
+  if(themeToggle){ themeToggle.textContent = theme === 'dark' ? '☀️ Hell' : '🌙 Dunkel'; }
+}
+
+function initTheme(){
+  let theme = 'light';
+  try{
+    const stored = localStorage.getItem('theme');
+    if(stored){ theme = stored; }
+    else if(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches){
+      theme = 'dark';
+    }
+  }catch(e){}
+  setTheme(theme, false);
+}
+
+initTheme();
+if(themeToggle){
+  themeToggle.addEventListener('click', ()=>{
+    const next = root.classList.contains('dark') ? 'light' : 'dark';
+    setTheme(next);
+  });
+}
+if(window.matchMedia){
+  try{
+    const mm = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (ev)=>{
+      try{ if(localStorage.getItem('theme')) return; }catch(e){}
+      setTheme(ev.matches ? 'dark' : 'light', false);
+    };
+    if(typeof mm.addEventListener === 'function') mm.addEventListener('change', handler);
+    else if(typeof mm.addListener === 'function') mm.addListener(handler);
+  }catch(e){}
+}
+
 function selFill(sel, values, stringify=(v)=>String(v), label=(v)=>String(v), selectedVal=null){
   sel.innerHTML = "";
   for(const v of values){
