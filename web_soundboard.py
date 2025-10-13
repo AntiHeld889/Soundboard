@@ -2178,20 +2178,36 @@ def live_main(argv):
 
     latency_kw = {"latency": "low"} if args.ultra_low_latency else {}
     try:
+        in_channels = 1
+        if args.input_device is not None:
+            try:
+                info_in = sd.query_devices(args.input_device)
+                max_in = int(info_in.get("max_input_channels", 0))
+                if max_in < 1:
+                    print(f"Ausgewähltes Input-Gerät (# {args.input_device}) besitzt keine Eingangskanäle.", file=sys.stderr)
+                    sys.exit(11)
+            except Exception as e:
+                print(f"Warnung: Eingabegerät #{args.input_device} konnte nicht abgefragt werden ({e}). Nutze Mono (1 Kanal).", file=sys.stderr)
+
         if args.mode == "fx":
             stream = sd.InputStream(samplerate=args.samplerate, blocksize=args.blocksize, dtype="float32",
-                                    channels=1, device=args.input_device,
+                                    channels=in_channels, device=args.input_device,
                                     callback=lambda indata, frames, time_info, status: callback(indata, None, frames, time_info, status),
                                     **latency_kw)
         else:
-            out_channels = 2
-            try:
-                if args.output_device is not None:
-                    info = sd.query_devices(args.output_device)
-                    out_channels = 2 if info["max_output_channels"] >= 2 else 1
-            except Exception: pass
+            out_channels = 1
+            if args.output_device is not None:
+                try:
+                    info_out = sd.query_devices(args.output_device)
+                    max_out = int(info_out.get("max_output_channels", 0))
+                    if max_out < 1:
+                        print(f"Ausgewähltes Output-Gerät (# {args.output_device}) besitzt keine Ausgangskanäle.", file=sys.stderr)
+                        sys.exit(12)
+                    out_channels = 2 if max_out >= 2 else 1
+                except Exception as e:
+                    print(f"Warnung: Ausgabegerät #{args.output_device} konnte nicht abgefragt werden ({e}). Nutze Mono (1 Kanal).", file=sys.stderr)
             stream = sd.Stream(samplerate=args.samplerate, blocksize=args.blocksize, dtype="float32",
-                               channels=(1, out_channels), device=(args.input_device, args.output_device),
+                               channels=(in_channels, out_channels), device=(args.input_device, args.output_device),
                                callback=callback, **latency_kw)
         print(f"Live gestartet (Modus {args.mode}). Strg+C zum Beenden.")
         with stream:
