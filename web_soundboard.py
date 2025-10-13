@@ -174,7 +174,7 @@ def load_config():
             set_last_error(f"Config lesen fehlgeschlagen ({CONFIG_PATH}): {e}")
     _normalize_gpio_in_cfg()
     cfg.setdefault("categories", [])
-    cfg.setdefault("file_categories", {})
+    cfg["file_categories"] = _normalized_assignment_map(cfg.get("file_categories", {}))
     cfg["live_config"] = _merge_defaults(cfg.get("live_config", {}), DEFAULT_CONFIG["live_config"])
 
 def save_config():
@@ -185,15 +185,47 @@ def save_config():
     except Exception as e:
         set_last_error(f"Config speichern fehlgeschlagen ({CONFIG_PATH}): {e}")
 
+def _coerce_categories(value):
+    if isinstance(value, str):
+        value = [value]
+    elif isinstance(value, (set, tuple)):
+        value = list(value)
+    elif not isinstance(value, list):
+        value = []
+    result = []
+    for cat in value:
+        if not isinstance(cat, str):
+            continue
+        cat = cat.strip()
+        if not cat or cat in result:
+            continue
+        result.append(cat)
+    return result
+
+
+def _normalized_assignment_map(raw):
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for fn, cats in raw.items():
+        normed = _coerce_categories(cats)
+        if normed:
+            out[str(fn)] = normed
+    return out
+
+
 def list_mp3s():
     files = []
-    assignments = cfg.get("file_categories", {})
-    for pattern in ("*.mp3","*.MP3"):
+    assignments = _normalized_assignment_map(cfg.get("file_categories", {}))
+    cfg["file_categories"] = assignments
+    for pattern in ("*.mp3", "*.MP3"):
         for p in sorted(SOUND_DIR.glob(pattern)):
+            cats = assignments.get(p.name, [])
             files.append({
-                "name": p.stem.replace("_"," "),
+                "name": p.stem.replace("_", " "),
                 "file": p.name,
-                "category": assignments.get(p.name)
+                "categories": cats,
+                "category": cats[0] if cats else None,
             })
     return files
 
@@ -499,7 +531,7 @@ PAGE_INDEX = """<!doctype html>
   .meta.ok { color:var(--ok); }
   .meta.err { color:var(--err); }
   .right { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .right select { min-width:160px; }
+  .right .catSelect { min-width:180px; min-height:110px; }
   .catLabel { font-size:12px; color:var(--muted); }
   .err { color:var(--err); font-weight:600; }
 </style>
@@ -541,16 +573,16 @@ PAGE_INDEX = """<!doctype html>
 
   <div id="list" class="list">
     {% for s in sounds %}
-      <div class="item" data-name="{{s.name|e}}" data-file="{{s.file|e}}" data-category="{{ (s.category or '')|e }}">
+      <div class="item" data-name="{{s.name|e}}" data-file="{{s.file|e}}" data-category="{{ (s.category or '')|e }}" data-categories='{{ (s.categories or [])|tojson|e }}'>
         <div class="left">
           <div class="name">{{s.name}}</div>
-          <div class="catLabel">{% if s.category %}{{s.category}}{% else %}Keine Kategorie{% endif %}</div>
+          <div class="catLabel">{% if s.categories %}{{ s.categories|join(', ') }}{% else %}Keine Kategorie{% endif %}</div>
         </div>
         <div class="right">
-          <select class="catSelect" data-file="{{s.file|e}}">
-            <option value="" {% if not s.category %}selected{% endif %}>Keine Kategorie</option>
+          <select class="catSelect" data-file="{{s.file|e}}" multiple size="4">
+            <option value="" {% if not s.categories %}selected{% endif %}>Keine Kategorie</option>
             {% for cat in categories %}
-              <option value="{{cat|e}}" {% if s.category==cat %}selected{% endif %}>{{cat}}</option>
+              <option value="{{cat|e}}" {% if s.categories and cat in s.categories %}selected{% endif %}>{{cat}}</option>
             {% endfor %}
           </select>
           <button class="playBtn" data-file="{{s.file|e}}">▶ Abspielen</button>
@@ -625,6 +657,49 @@ let assignments={{ assignments|tojson }};
 if(!Array.isArray(categories)) categories=[];
 if(!assignments || typeof assignments!=='object') assignments={};
 
+function normalizeCategoriesList(value){
+  const out=[];
+  if(Array.isArray(value)){
+    for(const entry of value){
+      if(typeof entry!=='string') continue;
+      const trimmed=entry.trim();
+      if(trimmed && !out.includes(trimmed)) out.push(trimmed);
+    }
+  }else if(typeof value==='string'){
+    const trimmed=value.trim();
+    if(trimmed) out.push(trimmed);
+  }else if(value && typeof value==='object' && typeof value[Symbol.iterator]==='function'){
+    for(const entry of value){
+      if(typeof entry!=='string') continue;
+      const trimmed=entry.trim();
+      if(trimmed && !out.includes(trimmed)) out.push(trimmed);
+    }
+  }
+  return out;
+}
+
+function normalizeAssignments(raw){
+  const out={};
+  if(!raw || typeof raw!=='object') return out;
+  for(const [file, cats] of Object.entries(raw)){
+    const normalized=normalizeCategoriesList(cats);
+    if(normalized.length) out[file]=normalized;
+  }
+  return out;
+}
+
+function getItemCategories(el){
+  if(!el) return [];
+  const raw=el.dataset.categories;
+  if(raw){
+    try{ return normalizeCategoriesList(JSON.parse(raw)); }
+    catch(e){}
+  }
+  return normalizeCategoriesList(el.dataset.category || []);
+}
+
+assignments=normalizeAssignments(assignments);
+
 function norm(s){ return (s||'').toLowerCase().normalize('NFKD'); }
 function setCatMsg(text, ok){
   if(!catMsg) return;
@@ -632,20 +707,22 @@ function setCatMsg(text, ok){
   catMsg.textContent=text;
   catMsg.className='meta ' + (ok ? 'ok' : 'err');
 }
-function fillCategorySelect(select, selectedValue){
+function fillCategorySelect(select, selectedValues){
   if(!select) return;
+  const selected=normalizeCategoriesList(selectedValues);
   while(select.options.length) select.remove(0);
   const noneOpt=document.createElement('option');
   noneOpt.value='';
   noneOpt.textContent='Keine Kategorie';
+  noneOpt.selected = selected.length===0;
   select.appendChild(noneOpt);
   for(const cat of categories){
     const opt=document.createElement('option');
     opt.value=cat;
     opt.textContent=cat;
+    opt.selected = selected.includes(cat);
     select.appendChild(opt);
   }
-  select.value = selectedValue && categories.includes(selectedValue) ? selectedValue : '';
 }
 function applyFilter(){
   const items = list ? [...list.querySelectorAll('.item')] : [];
@@ -655,7 +732,7 @@ function applyFilter(){
   for(const el of items){
     const hay=norm((el.dataset.name||'') + " " + (el.dataset.file||''));
     const matchesText=!needle || hay.includes(needle);
-    const matchesCat=!selectedCat || (el.dataset.category===selectedCat);
+    const matchesCat=!selectedCat || getItemCategories(el).includes(selectedCat);
     const match=matchesText && matchesCat;
     el.style.display = match ? "" : "none";
     if(match) shown++;
@@ -664,9 +741,14 @@ function applyFilter(){
 }
 function updateCategoryUI(){
   const values = Object.values(assignments||{});
-  for(const cat of values){
-    if(cat && !categories.includes(cat)) categories.push(cat);
+  for(const entry of values){
+    const catList=normalizeCategoriesList(entry);
+    for(const cat of catList){
+      if(cat && !categories.includes(cat)) categories.push(cat);
+    }
   }
+  categories = categories.filter((v,i,self)=>self.indexOf(v)===i);
+  categories.sort((a,b)=>a.localeCompare(b,'de',{sensitivity:'base'}));
   if(catFilter){
     const prev = catFilter.value;
     while(catFilter.options.length) catFilter.remove(0);
@@ -681,11 +763,12 @@ function updateCategoryUI(){
   }
   document.querySelectorAll('.item').forEach(el=>{
     const file=el.dataset.file;
-    const cat=assignments[file] || '';
-    el.dataset.category = cat;
+    const catList=normalizeCategoriesList(assignments[file]);
+    el.dataset.category = catList.length?catList[0]:'';
+    el.dataset.categories = JSON.stringify(catList);
     const label=el.querySelector('.catLabel');
-    if(label) label.textContent = cat ? cat : 'Keine Kategorie';
-    fillCategorySelect(el.querySelector('.catSelect'), cat);
+    if(label) label.textContent = catList.length ? catList.join(', ') : 'Keine Kategorie';
+    fillCategorySelect(el.querySelector('.catSelect'), catList);
   });
   applyFilter();
 }
@@ -700,7 +783,7 @@ async function loadCategories(){
     const j=await res.json();
     if(!res.ok || !j.ok) throw new Error(j.error||'Kategorien konnten nicht geladen werden');
     categories=Array.isArray(j.categories)?j.categories:[];
-    assignments=j.assignments&&typeof j.assignments==='object'?j.assignments:{};
+    assignments=normalizeAssignments(j.assignments);
     setCatMsg('', true);
     updateCategoryUI();
   }catch(e){
@@ -745,7 +828,7 @@ if(addCatBtn) addCatBtn.addEventListener('click', async ()=>{
     const j=await res.json();
     if(!res.ok || !j.ok) throw new Error(j.error||'Kategorie konnte nicht gespeichert werden');
     categories=Array.isArray(j.categories)?j.categories:categories;
-    if(j.assignments && typeof j.assignments==='object') assignments=j.assignments;
+    assignments=normalizeAssignments(j.assignments);
     newCatInput.value='';
     setCatMsg('Kategorie erstellt', true);
     updateCategoryUI();
@@ -759,16 +842,20 @@ if(list) list.addEventListener('change', async (e)=>{
   const sel=e.target.closest('.catSelect');
   if(!sel) return;
   const file=sel.dataset.file;
-  const prev=assignments[file]||'';
+  const prev=normalizeCategoriesList(assignments[file]);
   try{
-    const res=await fetch('/file-category',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file, category: sel.value})});
+    let selectedValues=[...sel.options].filter(o=>o.selected).map(o=>o.value);
+    if(selectedValues.includes('')) selectedValues=[];
+    selectedValues=selectedValues.filter(v=>v);
+    const res=await fetch('/file-category',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file, categories: selectedValues})});
     const j=await res.json();
     if(!res.ok || !j.ok) throw new Error(j.error||'Kategorie konnte nicht gespeichert werden');
-    if(j.category) assignments[file]=j.category; else delete assignments[file];
+    const updated=('categories' in j) ? normalizeCategoriesList(j.categories) : normalizeCategoriesList(j.category);
+    if(updated.length) assignments[file]=updated; else delete assignments[file];
     setCatMsg('Kategorie gespeichert', true);
     updateCategoryUI();
   }catch(err){
-    if(prev) sel.value=prev; else sel.value='';
+    fillCategorySelect(sel, prev);
     setCatMsg(err.message||'Kategorie konnte nicht gespeichert werden', false);
     updateCategoryUI();
   }
@@ -1442,7 +1529,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 @app.get("/")
 def index():
     sounds = list_mp3s()
-    assignments = {s["file"]: s["category"] for s in sounds if s.get("category")}
+    assignments = {s["file"]: s["categories"] for s in sounds if s.get("categories")}
     return render_template_string(
         PAGE_INDEX,
         sounds=sounds,
@@ -1617,15 +1704,20 @@ def _normalize_category_name(name):
 
 def _ensure_category_structures():
     cfg.setdefault("categories", [])
-    cfg.setdefault("file_categories", {})
+    cfg["file_categories"] = _normalized_assignment_map(cfg.get("file_categories", {}))
 
 @app.get("/categories")
 def categories_get():
     _ensure_category_structures()
     existing_files = {p.name for p in SOUND_DIR.glob("*.mp3")} | {p.name for p in SOUND_DIR.glob("*.MP3")}
-    assignments = {fn: cat for fn, cat in cfg["file_categories"].items() if fn in existing_files}
-    # Entferne verwaiste Zuordnungen
-    removed = set(cfg["file_categories"].keys()) - set(assignments.keys())
+    assignments = {}
+    removed = []
+    for fn, cats in cfg["file_categories"].items():
+        if fn in existing_files:
+            if cats:
+                assignments[fn] = cats
+        else:
+            removed.append(fn)
     if removed:
         for key in removed:
             cfg["file_categories"].pop(key, None)
@@ -1653,15 +1745,37 @@ def file_category_post():
     if not fn:
         return jsonify(error="Parameter 'file' fehlt"), 400
     resolve_file(fn)
-    cat = _normalize_category_name(data.get("category"))
-    if cat:
-        if not any(cat == c for c in cfg["categories"]):
-            return jsonify(error="Unbekannte Kategorie"), 400
-        cfg["file_categories"][fn] = cat
+    raw_cats = data.get("categories", None)
+    if raw_cats is None:
+        raw_single = data.get("category", None)
+        if isinstance(raw_single, list):
+            raw_cats = raw_single
+        elif raw_single is None:
+            raw_cats = []
+        else:
+            raw_cats = [raw_single]
+    elif isinstance(raw_cats, str):
+        raw_cats = [raw_cats]
+    elif not isinstance(raw_cats, (list, tuple, set)):
+        return jsonify(error="Ungültiges Format für Kategorien"), 400
+
+    normalized = []
+    for cat in raw_cats:
+        cname = _normalize_category_name(cat)
+        if not cname:
+            continue
+        if not any(cname == c for c in cfg["categories"]):
+            return jsonify(error=f"Unbekannte Kategorie: {cname}"), 400
+        if cname not in normalized:
+            normalized.append(cname)
+
+    if normalized:
+        cfg["file_categories"][fn] = normalized
     else:
         cfg["file_categories"].pop(fn, None)
     save_config()
-    return jsonify(ok=True, file=fn, category=cfg["file_categories"].get(fn))
+    cats = cfg["file_categories"].get(fn, [])
+    return jsonify(ok=True, file=fn, categories=cats, category=cats[0] if cats else None)
 
 # ===== PortAudio Devices =====
 @app.get("/pa-devices")
