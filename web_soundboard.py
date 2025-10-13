@@ -478,6 +478,7 @@ PAGE_INDEX = """<!doctype html>
 })();
 </script>
 <style>
+  *, *::before, *::after { box-sizing: border-box; }
   :root {
     --pad: 14px;
     --radius: 14px;
@@ -509,31 +510,51 @@ PAGE_INDEX = """<!doctype html>
     --accent: #81c784;
   }
   html, body { background: var(--bg); color: var(--fg); }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 18px; transition: background 0.3s, color 0.3s; }
-  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-  h1 { margin:0; font-size:22px; }
-  a.btn, button.btn { text-decoration:none; border:1px solid var(--border); padding:8px 12px; border-radius:var(--radius); color:var(--fg); background:var(--button-bg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: clamp(12px, 4vw, 28px); transition: background 0.3s, color 0.3s; font-size: 16px; line-height: 1.5; }
+  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; flex-wrap:wrap; }
+  h1 { margin:0; font-size: clamp(22px, 5vw, 30px); }
+  a.btn, button.btn { text-decoration:none; border:1px solid var(--border); padding:10px 14px; border-radius:var(--radius); color:var(--fg); background:var(--button-bg); cursor:pointer; transition:background 0.2s, border-color 0.2s; min-height:44px; }
   a.btn:hover, button.btn:hover { background:var(--button-hover); border-color:var(--border-strong); }
+  button, input, select { font-size:16px; min-height:44px; }
+  button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .toolbar { display:flex; gap:12px; align-items:center; margin:12px 0 14px; flex-wrap:wrap; }
-  input[type="search"] { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); min-width:260px; font-size:16px; background:var(--button-bg); color:var(--fg); }
+  input[type="search"] { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); min-width:260px; width:min(420px,100%); background:var(--button-bg); color:var(--fg); }
   input[type="search"]::placeholder { color: var(--muted); }
-  input[type="text"], select { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); }
+  input[type="text"], select { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); width:auto; max-width:100%; }
   select { min-width:180px; }
   button { padding:10px 14px; border-radius:var(--radius); border:1px solid var(--border); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
   button:hover { background:var(--button-hover); border-color:var(--border-strong); }
-  .toolbar .group { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .toolbar .group { display:flex; gap:8px; align-items:center; flex-wrap:wrap; flex:1 1 220px; }
   .list { display:flex; flex-direction:column; gap:8px; }
-  .item { display:flex; justify-content:space-between; align-items:center; border:1px solid var(--border); border-radius:var(--radius); padding: var(--pad); background:var(--card-bg); transition:background 0.2s, border-color 0.2s; }
+  .item { display:flex; justify-content:space-between; align-items:center; border:1px solid var(--border); border-radius:var(--radius); padding: var(--pad); background:var(--card-bg); transition:background 0.2s, border-color 0.2s; gap:16px; }
   .left { display:flex; flex-direction:column; gap:4px; }
   .name { font-weight:600; }
   .playing { outline:2px solid var(--accent); }
   .meta { font-size:12px; color:var(--muted); }
   .meta.ok { color:var(--ok); }
   .meta.err { color:var(--err); }
-  .right { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .right .catSelect { min-width:180px; min-height:110px; }
+  .right { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  .right .catSelect { min-width:200px; min-height:110px; width: min(320px, 100%); }
   .catLabel { font-size:12px; color:var(--muted); }
   .err { color:var(--err); font-weight:600; }
+  @media (hover: none) {
+    a.btn:hover, button.btn:hover, button:hover { background:var(--button-bg); border-color:var(--border); }
+  }
+  @media (max-width: 900px) {
+    header { flex-direction:column; align-items:flex-start; }
+    header > div { width:100%; justify-content:flex-start; flex-wrap:wrap; }
+    .toolbar { flex-direction:column; align-items:stretch; }
+    .toolbar .group { width:100%; }
+    .toolbar .group > * { flex:1 1 auto; }
+    input[type="search"], input[type="text"], select, button { width:100%; }
+    .list { gap:12px; }
+    .item { flex-direction:column; align-items:stretch; }
+    .right { width:100%; justify-content:flex-start; }
+    .right .catSelect { width:100%; }
+  }
+  @media (max-width: 520px) {
+    body { margin: 12px 10px; }
+  }
 </style>
 </head>
 <body>
@@ -888,6 +909,7 @@ PAGE_SETTINGS = """<!doctype html>
 })();
 </script>
 <style>
+  *, *::before, *::after { box-sizing: border-box; }
   :root {
     --radius: 14px;
     --bg: #fafafa;
@@ -918,21 +940,38 @@ PAGE_SETTINGS = """<!doctype html>
     --accent: #81c784;
   }
   html, body { background: var(--bg); color: var(--fg); }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:18px; transition: background 0.3s, color 0.3s; }
-  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-  h1 { margin:0; font-size:22px; }
-  a.btn, button.btn { text-decoration:none; border:1px solid var(--border); padding:8px 12px; border-radius:var(--radius); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: clamp(12px, 4vw, 28px); transition: background 0.3s, color 0.3s; font-size: 16px; line-height: 1.5; }
+  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; flex-wrap:wrap; }
+  h1 { margin:0; font-size: clamp(22px, 5vw, 30px); }
+  a.btn, button.btn { text-decoration:none; border:1px solid var(--border); padding:10px 14px; border-radius:var(--radius); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; min-height:44px; }
   a.btn:hover, button.btn:hover { background:var(--button-hover); border-color:var(--border-strong); }
+  button { border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); padding:10px 14px; cursor:pointer; transition:background 0.2s, border-color 0.2s; min-height:44px; font-size:16px; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  button:hover { background:var(--button-hover); border-color:var(--border-strong); }
   .card { border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin:12px 0; background:var(--card-bg); transition:background 0.2s, border-color 0.2s; }
   .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  select, button, input[type="range"], input[type="number"], input[type="text"] { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); transition:background 0.2s, border-color 0.2s; }
+  select, input[type="number"], input[type="text"] { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); transition:background 0.2s, border-color 0.2s; font-size:16px; min-height:44px; width:auto; max-width:100%; }
   select:hover, button:hover, input[type="text"]:hover, input[type="number"]:hover { border-color:var(--border-strong); }
-  input[type="range"] { accent-color: var(--accent); }
+  input[type="range"] { accent-color: var(--accent); width:min(360px,100%); }
+  button, input, select { font-size:16px; }
   .hint { font-size:12px; color:var(--muted); }
   pre { background:var(--card-alt); padding:12px; border-radius:var(--radius); overflow:auto; border:1px solid var(--border); transition:background 0.2s, border-color 0.2s; }
   .ok { color:var(--ok); }
   .err { color:var(--err); font-weight:600; }
-  label { min-width: 160px; display:inline-block; }
+  label { min-width: 200px; display:inline-block; }
+  @media (hover: none) {
+    a.btn:hover, button.btn:hover, button:hover { background:var(--button-bg); border-color:var(--border); }
+  }
+  @media (max-width: 980px) {
+    header { flex-direction:column; align-items:flex-start; }
+    header > div { width:100%; display:flex; gap:8px; flex-wrap:wrap; }
+    .row { flex-direction:column; align-items:stretch; }
+    label { width:100%; min-width:0; }
+    select, input[type="number"], input[type="text"], button { width:100%; }
+    input[type="range"] { width:100%; }
+  }
+  @media (max-width: 520px) {
+    body { margin: 12px 10px; }
+  }
 </style>
 </head>
 <body>
@@ -1133,6 +1172,7 @@ PAGE_LIVE = """<!doctype html>
 })();
 </script>
 <style>
+  *, *::before, *::after { box-sizing: border-box; }
   :root {
     --radius: 14px;
     --bg: #fafafa;
@@ -1163,21 +1203,34 @@ PAGE_LIVE = """<!doctype html>
     --accent: #81c784;
   }
   html, body { background: var(--bg); color: var(--fg); }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:18px; transition: background 0.3s, color 0.3s; }
-  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-  h1 { margin:0; font-size:22px; }
-  a.btn, button.btn { text-decoration:none; border:1px solid var(--border); padding:8px 12px; border-radius:var(--radius); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: clamp(12px, 4vw, 28px); transition: background 0.3s, color 0.3s; font-size: 16px; line-height: 1.5; }
+  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; flex-wrap:wrap; }
+  h1 { margin:0; font-size: clamp(22px, 5vw, 30px); }
+  a.btn, button.btn { text-decoration:none; border:1px solid var(--border); padding:10px 14px; border-radius:var(--radius); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; min-height:44px; }
   a.btn:hover, button.btn:hover { background:var(--button-hover); border-color:var(--border-strong); }
-  button { border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); padding:8px 12px; cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+  button { border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); padding:10px 14px; cursor:pointer; transition:background 0.2s, border-color 0.2s; min-height:44px; font-size:16px; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   button:hover { background:var(--button-hover); border-color:var(--border-strong); }
   .card { border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin:12px 0; background:var(--card-bg); transition:background 0.2s, border-color 0.2s; }
   .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  select, input[type="number"], input[type="text"] { padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); transition:background 0.2s, border-color 0.2s; }
+  select, input[type="number"], input[type="text"] { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); transition:background 0.2s, border-color 0.2s; font-size:16px; min-height:44px; width:auto; max-width:100%; }
   select:hover, input[type="number"]:hover, input[type="text"]:hover { border-color:var(--border-strong); }
   .hint { font-size:12px; color:var(--muted); }
   pre { background:var(--card-alt); padding:12px; border-radius:var(--radius); overflow:auto; max-height:260px; border:1px solid var(--border); transition:background 0.2s, border-color 0.2s; }
   .ok { color:var(--ok); } .err { color:var(--err); font-weight:600; }
-  label { min-width: 180px; display:inline-block; }
+  label { min-width: 200px; display:inline-block; }
+  @media (hover: none) {
+    a.btn:hover, button.btn:hover, button:hover { background:var(--button-bg); border-color:var(--border); }
+  }
+  @media (max-width: 1024px) {
+    header { flex-direction:column; align-items:flex-start; }
+    header > div { width:100%; display:flex; gap:8px; flex-wrap:wrap; }
+    .row { flex-direction:column; align-items:stretch; }
+    label { width:100%; min-width:0; }
+    select, input[type="number"], input[type="text"], button { width:100%; }
+  }
+  @media (max-width: 520px) {
+    body { margin: 12px 10px; }
+  }
 </style>
 </head>
 <body>
