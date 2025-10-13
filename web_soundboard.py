@@ -26,7 +26,7 @@ Start
   Browser: http://<Pi-IP>:8080
 """
 
-import os, sys, re, json, shlex, signal, subprocess, threading, time, argparse
+import os, sys, re, json, shlex, signal, subprocess, threading, time, argparse, copy
 from collections import deque
 from pathlib import Path
 
@@ -119,7 +119,7 @@ GPIO_OPTIONS = [None, 2,3,4,5,6,7,8,9,10,11,12,13,16,17,18,19,20,21,22,23,24,25,
 app = Flask(__name__)
 play_lock    = threading.RLock()
 current_proc = {"p": None, "file": None}
-cfg          = dict(DEFAULT_CONFIG)
+cfg          = copy.deepcopy(DEFAULT_CONFIG)
 last_error   = {"msg": None, "ts": None}
 last_cmd     = {"text": None}
 
