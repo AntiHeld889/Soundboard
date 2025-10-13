@@ -515,16 +515,17 @@ PAGE_INDEX = """<!doctype html>
   h1 { margin:0; font-size: clamp(22px, 5vw, 30px); }
   a.btn, button.btn { text-decoration:none; border:1px solid var(--border); padding:10px 14px; border-radius:var(--radius); color:var(--fg); background:var(--button-bg); cursor:pointer; transition:background 0.2s, border-color 0.2s; min-height:44px; }
   a.btn:hover, button.btn:hover { background:var(--button-hover); border-color:var(--border-strong); }
-  button, input, select { font-size:16px; min-height:44px; }
+  button, input, select { font-size:15px; min-height:38px; }
   button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-  .toolbar { display:flex; gap:12px; align-items:center; margin:12px 0 14px; flex-wrap:wrap; }
-  input[type="search"] { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); min-width:260px; width:min(420px,100%); background:var(--button-bg); color:var(--fg); }
+  .toolbar { display:flex; gap:8px; align-items:center; margin:10px 0 12px; flex-wrap:wrap; }
+  .toolbar button, .toolbar input, .toolbar select { font-size:15px; min-height:34px; padding:6px 10px; }
+  input[type="search"] { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); min-width:200px; width:min(360px,100%); background:var(--button-bg); color:var(--fg); }
   input[type="search"]::placeholder { color: var(--muted); }
   input[type="text"], select { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); width:auto; max-width:100%; }
   select { min-width:180px; }
-  button { padding:10px 14px; border-radius:var(--radius); border:1px solid var(--border); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
+  button { padding:8px 12px; border-radius:var(--radius); border:1px solid var(--border); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
   button:hover { background:var(--button-hover); border-color:var(--border-strong); }
-  .toolbar .group { display:flex; gap:8px; align-items:center; flex-wrap:wrap; flex:1 1 220px; }
+  .toolbar .group { display:flex; gap:6px; align-items:center; flex-wrap:wrap; flex:1 1 200px; }
   .list { display:flex; flex-direction:column; gap:8px; }
   .item { display:flex; justify-content:space-between; align-items:center; border:1px solid var(--border); border-radius:var(--radius); padding: var(--pad); background:var(--card-bg); transition:background 0.2s, border-color 0.2s; gap:16px; }
   .left { display:flex; flex-direction:column; gap:4px; }
@@ -540,13 +541,15 @@ PAGE_INDEX = """<!doctype html>
   @media (hover: none) {
     a.btn:hover, button.btn:hover, button:hover { background:var(--button-bg); border-color:var(--border); }
   }
+  .toolbar.status { justify-content:space-between; gap:6px; }
+  .toolbar.status .meta { flex:1 1 auto; }
   @media (max-width: 900px) {
     header { flex-direction:column; align-items:flex-start; }
     header > div { width:100%; justify-content:flex-start; flex-wrap:wrap; }
     .toolbar { flex-direction:column; align-items:stretch; }
     .toolbar .group { width:100%; }
     .toolbar .group > * { flex:1 1 auto; }
-    input[type="search"], input[type="text"], select, button { width:100%; }
+    input[type="search"], select, button { width:100%; }
     .list { gap:12px; }
     .item { flex-direction:column; align-items:stretch; }
     .right { width:100%; justify-content:flex-start; }
@@ -567,10 +570,10 @@ PAGE_INDEX = """<!doctype html>
     </div>
   </header>
 
-  <div class="toolbar">
+  <div class="toolbar main-controls">
       <div class="group">
         <input id="q" type="search" placeholder="Suche nach Titel/Datei …" autocomplete="off" />
-        <button id="clearBtn">✖</button>
+        <button id="clearBtn" title="Suche löschen">✖</button>
       </div>
       <div class="group">
         <select id="catFilter">
@@ -580,15 +583,11 @@ PAGE_INDEX = """<!doctype html>
           {% endfor %}
         </select>
       </div>
-      <button id="stopBtn">⏹ Stop</button>
-      <span class="meta" id="meta"></span>
+      <button id="stopBtn" title="Wiedergabe stoppen">⏹ Stop</button>
   </div>
 
-  <div class="toolbar">
-      <div class="group">
-        <input id="newCat" type="text" placeholder="Neue Kategorie …" autocomplete="off" />
-        <button id="addCatBtn">➕ Hinzufügen</button>
-      </div>
+  <div class="toolbar status">
+      <span class="meta" id="meta"></span>
       <span class="meta" id="catMsg"></span>
   </div>
 
@@ -664,8 +663,6 @@ if(window.matchMedia){
 const q=document.getElementById('q');
 const clearBtn=document.getElementById('clearBtn');
 const catFilter=document.getElementById('catFilter');
-const newCatInput=document.getElementById('newCat');
-const addCatBtn=document.getElementById('addCatBtn');
 const catMsg=document.getElementById('catMsg');
 const list=document.getElementById('list');
 const meta=document.getElementById('meta');
@@ -840,24 +837,6 @@ if(q) q.addEventListener('input', applyFilter);
 if(clearBtn) clearBtn.addEventListener('click', ()=>{ if(q){ q.value=""; applyFilter(); q.focus(); } });
 if(catFilter) catFilter.addEventListener('change', applyFilter);
 if(stopBtn) stopBtn.addEventListener('click', stop);
-if(addCatBtn) addCatBtn.addEventListener('click', async ()=>{
-  if(!newCatInput) return;
-  const name=newCatInput.value.trim();
-  if(!name){ setCatMsg('Bitte Namen eingeben', false); newCatInput.focus(); return; }
-  try{
-    const res=await fetch('/categories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
-    const j=await res.json();
-    if(!res.ok || !j.ok) throw new Error(j.error||'Kategorie konnte nicht gespeichert werden');
-    categories=Array.isArray(j.categories)?j.categories:categories;
-    assignments=normalizeAssignments(j.assignments);
-    newCatInput.value='';
-    setCatMsg('Kategorie erstellt', true);
-    updateCategoryUI();
-  }catch(e){ setCatMsg(e.message||'Kategorie konnte nicht gespeichert werden', false); }
-});
-if(newCatInput) newCatInput.addEventListener('keydown', (ev)=>{
-  if(ev.key==='Enter'){ ev.preventDefault(); if(addCatBtn) addCatBtn.click(); }
-});
 if(list) list.addEventListener('click', (e)=>{ const btn=e.target.closest('.playBtn'); if(!btn) return; play(btn.dataset.file); });
 if(list) list.addEventListener('change', async (e)=>{
   const sel=e.target.closest('.catSelect');
@@ -1067,6 +1046,17 @@ PAGE_SETTINGS = """<!doctype html>
   </div>
 
   <div class="card">
+    <h3>Kategorien</h3>
+    <div class="row">
+      <label for="newCategory">Neue Kategorie:</label>
+      <input id="newCategory" type="text" placeholder="z. B. Jingles" />
+      <button id="addCategoryBtn">➕ Hinzufügen</button>
+    </div>
+    <p class="hint" id="categoryListHint">Noch keine Kategorien vorhanden.</p>
+    <div class="hint" id="categoryMsg"></div>
+  </div>
+
+  <div class="card">
     <h3>Letzter Fehler</h3>
     <pre id="lastErr"></pre>
   </div>
@@ -1127,7 +1117,42 @@ const syncLead=document.getElementById('syncLead'), saveSync=document.getElement
 const closedAngle=document.getElementById('closedAngle'), openAngle=document.getElementById('openAngle'), saveAngles=document.getElementById('saveAngles'), anglesMsg=document.getElementById('anglesMsg');
 const servoGpioSel=document.getElementById('servoGpioSel'), powerGpioSel=document.getElementById('powerGpioSel'), saveGpio=document.getElementById('saveGpio'), gpioMsg=document.getElementById('gpioMsg');
 const soundDir=document.getElementById('soundDir'), configPath=document.getElementById('configPath'), savePaths=document.getElementById('savePaths'), pathsMsg=document.getElementById('pathsMsg');
+const newCategory=document.getElementById('newCategory'), addCategoryBtn=document.getElementById('addCategoryBtn');
+const categoryListHint=document.getElementById('categoryListHint'), categoryMsg=document.getElementById('categoryMsg');
 const dbg=document.getElementById('dbg'), lastErr=document.getElementById('lastErr'), devMsg=document.getElementById('devMsg');
+let currentCategories=[];
+
+function renderCategoryList(){
+  if(!categoryListHint) return;
+  if(!currentCategories.length){
+    categoryListHint.textContent='Noch keine Kategorien vorhanden.';
+  }else{
+    categoryListHint.textContent='Vorhandene Kategorien ('+currentCategories.length+'): '+currentCategories.join(', ');
+  }
+}
+
+function setCategoryStatus(text, ok){
+  if(!categoryMsg) return;
+  if(!text){ categoryMsg.textContent=''; categoryMsg.className='hint'; return; }
+  categoryMsg.textContent=text;
+  categoryMsg.className='hint ' + (ok ? 'ok' : 'err');
+}
+
+async function loadCategoriesCard(){
+  if(!categoryListHint) return;
+  try{
+    const res=await fetch('/categories');
+    const j=await res.json();
+    if(!res.ok || !j.ok) throw new Error(j.error||'Kategorien konnten nicht geladen werden');
+    currentCategories=Array.isArray(j.categories)?j.categories:[];
+    currentCategories=currentCategories.filter(c=>typeof c==='string'&&c.trim()).map(c=>c.trim());
+    currentCategories.sort((a,b)=>a.localeCompare(b,'de',{sensitivity:'base'}));
+    renderCategoryList();
+    setCategoryStatus('', true);
+  }catch(e){
+    setCategoryStatus(e.message||'Kategorien konnten nicht geladen werden', false);
+  }
+}
 
 function fillGpioSelect(sel, value){ sel.innerHTML=""; const opts=[null,2,3,4,5,6,7,8,9,10,11,12,13,16,17,18,19,20,21,22,23,24,25,26,27]; for(const v of opts){ const o=document.createElement('option'); o.value=(v===null)?"None":String(v); o.textContent=(v===null)?"None":String(v); if((value===null&&v===null)||(value!==null&&String(value)===String(v))) o.selected=true; sel.appendChild(o);} }
 
@@ -1146,9 +1171,33 @@ saveAngles.onclick=async()=>{ try{ const ca=parseInt(closedAngle.value,10), oa=p
 saveGpio.onclick=async()=>{ function parse(v){ if(!v||v.toLowerCase()==="none") return null; const n=parseInt(v,10); return isNaN(n)?null:n; } try{ const j=await fetchJSON('/gpio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({servo_gpio:parse(servoGpioSel.value),power_gpio:parse(powerGpioSel.value)})}); gpioMsg.textContent="Servo="+(j.servo_gpio===null?"None":j.servo_gpio)+", Power="+(j.power_gpio===null?"None":j.power_gpio); gpioMsg.className="hint ok"; }catch(e){ gpioMsg.textContent=e.message; gpioMsg.className="hint err"; } };
 savePaths.onclick=async()=>{ try{ const body={}; if(soundDir.value.trim()) body.sound_dir=soundDir.value.trim(); if(configPath.value.trim()) body.config_path=configPath.value.trim(); const j=await fetchJSON('/paths',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); pathsMsg.textContent="SOUND_DIR="+j.sound_dir+" | CONFIG_PATH="+j.config_path; pathsMsg.className="hint ok"; }catch(e){ pathsMsg.textContent=e.message; pathsMsg.className="hint err"; } };
 
+if(addCategoryBtn) addCategoryBtn.onclick=async()=>{
+  if(!newCategory) return;
+  const name=newCategory.value.trim();
+  if(!name){ setCategoryStatus('Bitte Namen eingeben', false); newCategory.focus(); return; }
+  try{
+    const j=await fetchJSON('/categories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    let updated=[];
+    if(Array.isArray(j.categories)){
+      updated=j.categories;
+    }else{
+      updated=[...currentCategories, name];
+    }
+    currentCategories=updated.filter(c=>typeof c==='string'&&c.trim()).map(c=>c.trim());
+    currentCategories=currentCategories.filter((v,i,arr)=>arr.indexOf(v)===i);
+    currentCategories.sort((a,b)=>a.localeCompare(b,'de',{sensitivity:'base'}));
+    renderCategoryList();
+    newCategory.value='';
+    setCategoryStatus('Kategorie erstellt', true);
+  }catch(e){
+    setCategoryStatus(e.message||'Kategorie konnte nicht gespeichert werden', false);
+  }
+};
+if(newCategory) newCategory.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); if(addCategoryBtn) addCategoryBtn.click(); } });
+
 async function loadLastError(){ const j=await fetchJSON('/last-error'); lastErr.textContent=(j.ts?("["+j.ts+"] "):"")+(j.msg||"—"); }
 async function loadAppConfig(){ const j=await fetchJSON('/app-config'); syncLead.value=j.sync_lead_ms??180; closedAngle.value=j.closed_angle??5; openAngle.value=j.open_angle??65; function fill(sel,val){ sel.innerHTML=""; const opts=[null,2,3,4,5,6,7,8,9,10,11,12,13,16,17,18,19,20,21,22,23,24,25,26,27]; for(const v of opts){ const o=document.createElement('option'); o.value=(v===null)?"None":String(v); o.textContent=o.value; if((val===null&&v===null)||(val!==null&&String(val)===String(v))) o.selected=true; sel.appendChild(o); } } fill(servoGpioSel,j.servo_gpio??null); fill(powerGpioSel,j.power_gpio??null); soundDir.value=j.sound_dir||""; configPath.value=j.config_path||""; }
-window.addEventListener('DOMContentLoaded', async ()=>{ await loadDevices(); await loadVol(); await loadLastError(); await loadAppConfig(); });
+window.addEventListener('DOMContentLoaded', async ()=>{ await loadDevices(); await loadVol(); await loadLastError(); await loadAppConfig(); await loadCategoriesCard(); });
 </script>
 </body>
 </html>
