@@ -69,9 +69,12 @@ NORM_PERCENTILE   = 95
 # mpg123 Start-Wartezeit
 START_WAIT_MS     = 120
 
+DEFAULT_TITLE = "🎵 Raspberry Pi Soundboard"
+
 DEFAULT_CONFIG = {
     "alsa_device": "plughw:1,0",
     "alsa_card_index": 1,
+    "soundboard_title": DEFAULT_TITLE,
     "mixer_candidates": ["Speaker", "PCM", "Master", "Headphone"],
 
     # Kategorien
@@ -176,6 +179,7 @@ def load_config():
     cfg.setdefault("categories", [])
     cfg["file_categories"] = _normalized_assignment_map(cfg.get("file_categories", {}))
     cfg["live_config"] = _merge_defaults(cfg.get("live_config", {}), DEFAULT_CONFIG["live_config"])
+    cfg.setdefault("soundboard_title", DEFAULT_CONFIG["soundboard_title"])
 
 def save_config():
     try:
@@ -464,7 +468,7 @@ PAGE_INDEX = """<!doctype html>
 <html lang="de">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Soundboard</title>
+<title>{{ page_title|e }}</title>
 <script>
 (function(){
   try{
@@ -570,7 +574,7 @@ PAGE_INDEX = """<!doctype html>
 </head>
 <body>
   <header>
-    <h1>🎵 Raspberry Pi Soundboard</h1>
+    <h1>{{ page_title|e }}</h1>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn" id="themeToggle" type="button">🌙 Dunkel</button>
       <a class="btn" href="/live">🎙️ Live</a>
@@ -1044,6 +1048,18 @@ PAGE_SETTINGS = """<!doctype html>
   </div>
 
   <div class="card">
+    <h3>Anzeige</h3>
+    <div class="row">
+      <label for="soundboardTitle">Titel der MP3-Seite:</label>
+      <input id="soundboardTitle" type="text" placeholder="{{ default_title|e }}" style="min-width:360px;" maxlength="160" />
+    </div>
+    <div class="row">
+      <button id="saveTitle">Speichern</button>
+      <span class="hint" id="titleMsg"></span>
+    </div>
+  </div>
+
+  <div class="card">
     <h3>Pfade</h3>
     <div class="row">
       <label for="soundDir">SOUND_DIR:</label>
@@ -1131,6 +1147,7 @@ const curDev=document.getElementById('curDev'), curCard=document.getElementById(
 const syncLead=document.getElementById('syncLead'), saveSync=document.getElementById('saveSync'), syncMsg=document.getElementById('syncMsg');
 const closedAngle=document.getElementById('closedAngle'), openAngle=document.getElementById('openAngle'), saveAngles=document.getElementById('saveAngles'), anglesMsg=document.getElementById('anglesMsg');
 const servoGpioSel=document.getElementById('servoGpioSel'), powerGpioSel=document.getElementById('powerGpioSel'), saveGpio=document.getElementById('saveGpio'), gpioMsg=document.getElementById('gpioMsg');
+const soundboardTitle=document.getElementById('soundboardTitle'), saveTitle=document.getElementById('saveTitle'), titleMsg=document.getElementById('titleMsg');
 const soundDir=document.getElementById('soundDir'), configPath=document.getElementById('configPath'), savePaths=document.getElementById('savePaths'), pathsMsg=document.getElementById('pathsMsg');
 const newCategory=document.getElementById('newCategory'), addCategoryBtn=document.getElementById('addCategoryBtn');
 const categoryListHint=document.getElementById('categoryListHint'), categoryMsg=document.getElementById('categoryMsg'), categoryList=document.getElementById('categoryList');
@@ -1250,7 +1267,31 @@ muteBtn.onclick=async()=>{ const j=await fetchJSON('/volume',{method:'POST',head
 saveSync.onclick=async()=>{ try{ const val=parseInt(syncLead.value,10); const j=await fetchJSON('/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sync_lead_ms:val})}); syncMsg.textContent="Vorlauf: "+j.sync_lead_ms+" ms"; syncMsg.className="hint ok"; }catch(e){ syncMsg.textContent=e.message; syncMsg.className="hint err"; } };
 saveAngles.onclick=async()=>{ try{ const ca=parseInt(closedAngle.value,10), oa=parseInt(openAngle.value,10); const j=await fetchJSON('/angles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({closed_angle:ca,open_angle:oa})}); anglesMsg.textContent="CLOSED="+j.closed_angle+"°, OPEN="+j.open_angle+"°"; anglesMsg.className="hint ok"; }catch(e){ anglesMsg.textContent=e.message; anglesMsg.className="hint err"; } };
 saveGpio.onclick=async()=>{ function parse(v){ if(!v||v.toLowerCase()==="none") return null; const n=parseInt(v,10); return isNaN(n)?null:n; } try{ const j=await fetchJSON('/gpio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({servo_gpio:parse(servoGpioSel.value),power_gpio:parse(powerGpioSel.value)})}); gpioMsg.textContent="Servo="+(j.servo_gpio===null?"None":j.servo_gpio)+", Power="+(j.power_gpio===null?"None":j.power_gpio); gpioMsg.className="hint ok"; }catch(e){ gpioMsg.textContent=e.message; gpioMsg.className="hint err"; } };
-savePaths.onclick=async()=>{ try{ const body={}; if(soundDir.value.trim()) body.sound_dir=soundDir.value.trim(); if(configPath.value.trim()) body.config_path=configPath.value.trim(); const j=await fetchJSON('/paths',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); pathsMsg.textContent="SOUND_DIR="+j.sound_dir+" | CONFIG_PATH="+j.config_path; pathsMsg.className="hint ok"; }catch(e){ pathsMsg.textContent=e.message; pathsMsg.className="hint err"; } };
+savePaths.onclick=async()=>{
+  try{
+    const body={};
+    if(soundDir.value.trim()) body.sound_dir=soundDir.value.trim();
+    if(configPath.value.trim()) body.config_path=configPath.value.trim();
+    const j=await fetchJSON('/paths',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    pathsMsg.textContent=`SOUND_DIR=${j.sound_dir} | CONFIG_PATH=${j.config_path}`;
+    pathsMsg.className="hint ok";
+  }catch(e){
+    pathsMsg.textContent=e.message;
+    pathsMsg.className="hint err";
+  }
+};
+
+if(saveTitle) saveTitle.onclick=async()=>{
+  if(titleMsg){ titleMsg.textContent=''; titleMsg.className='hint'; }
+  try{
+    const body={ title: soundboardTitle ? soundboardTitle.value.trim() : '' };
+    const j=await fetchJSON('/soundboard-title',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(soundboardTitle) soundboardTitle.value=j.title||'';
+    if(titleMsg){ titleMsg.textContent='Gespeichert'; titleMsg.className='hint ok'; }
+  }catch(e){
+    if(titleMsg){ titleMsg.textContent=e.message||'Fehler'; titleMsg.className='hint err'; }
+  }
+};
 
 if(addCategoryBtn) addCategoryBtn.onclick=async()=>{
   if(!newCategory) return;
@@ -1270,7 +1311,7 @@ if(addCategoryBtn) addCategoryBtn.onclick=async()=>{
 if(newCategory) newCategory.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); if(addCategoryBtn) addCategoryBtn.click(); } });
 
 async function loadLastError(){ const j=await fetchJSON('/last-error'); lastErr.textContent=(j.ts?("["+j.ts+"] "):"")+(j.msg||"—"); }
-async function loadAppConfig(){ const j=await fetchJSON('/app-config'); syncLead.value=j.sync_lead_ms??180; closedAngle.value=j.closed_angle??5; openAngle.value=j.open_angle??65; function fill(sel,val){ sel.innerHTML=""; const opts=[null,2,3,4,5,6,7,8,9,10,11,12,13,16,17,18,19,20,21,22,23,24,25,26,27]; for(const v of opts){ const o=document.createElement('option'); o.value=(v===null)?"None":String(v); o.textContent=o.value; if((val===null&&v===null)||(val!==null&&String(val)===String(v))) o.selected=true; sel.appendChild(o); } } fill(servoGpioSel,j.servo_gpio??null); fill(powerGpioSel,j.power_gpio??null); soundDir.value=j.sound_dir||""; configPath.value=j.config_path||""; }
+async function loadAppConfig(){ const j=await fetchJSON('/app-config'); syncLead.value=j.sync_lead_ms??180; closedAngle.value=j.closed_angle??5; openAngle.value=j.open_angle??65; function fill(sel,val){ sel.innerHTML=""; const opts=[null,2,3,4,5,6,7,8,9,10,11,12,13,16,17,18,19,20,21,22,23,24,25,26,27]; for(const v of opts){ const o=document.createElement('option'); o.value=(v===null)?"None":String(v); o.textContent=o.value; if((val===null&&v===null)||(val!==null&&String(val)===String(v))) o.selected=true; sel.appendChild(o); } } fill(servoGpioSel,j.servo_gpio??null); fill(powerGpioSel,j.power_gpio??null); if(soundboardTitle) soundboardTitle.value=j.soundboard_title||''; if(titleMsg){ titleMsg.textContent=''; titleMsg.className='hint'; } soundDir.value=j.sound_dir||""; configPath.value=j.config_path||""; }
 window.addEventListener('DOMContentLoaded', async ()=>{ await loadDevices(); await loadVol(); await loadLastError(); await loadAppConfig(); await loadCategoriesCard(); });
 </script>
 </body>
@@ -1710,12 +1751,13 @@ def index():
         PAGE_INDEX,
         sounds=sounds,
         categories=cfg.get("categories", []),
-        assignments=assignments
+        assignments=assignments,
+        page_title=(cfg.get("soundboard_title") or DEFAULT_TITLE)
     )
 
 @app.get("/settings")
 def settings():
-    return render_template_string(PAGE_SETTINGS)
+    return render_template_string(PAGE_SETTINGS, default_title=DEFAULT_TITLE)
 
 @app.get("/live")
 def live_page():
@@ -1788,7 +1830,8 @@ def app_config_get():
                    gpio_options=GPIO_OPTIONS,
                    sound_dir=str(SOUND_DIR),
                    config_path=str(CONFIG_PATH),
-                   alsa_device=cfg.get("alsa_device"))
+                   alsa_device=cfg.get("alsa_device"),
+                   soundboard_title=cfg.get("soundboard_title") or DEFAULT_TITLE)
 
 @app.post("/sync")
 def sync_post():
@@ -1846,6 +1889,22 @@ def gpio_post():
     save_config()
     _apply_gpio_runtime()
     return jsonify(ok=True, servo_gpio=cfg["servo_gpio"], power_gpio=cfg["power_gpio"])
+
+@app.post("/soundboard-title")
+def soundboard_title_post():
+    data = request.get_json(silent=True) or {}
+    title = data.get("title", "")
+    if not isinstance(title, str):
+        return jsonify(error="Titel muss eine Zeichenkette sein"), 400
+    title = title.strip()
+    if not title:
+        title = DEFAULT_TITLE
+    if len(title) > 160:
+        return jsonify(error="Titel ist zu lang (max 160 Zeichen)"), 400
+    cfg["soundboard_title"] = title
+    save_config()
+    return jsonify(ok=True, title=cfg["soundboard_title"])
+
 
 @app.post("/paths")
 def paths_post():
