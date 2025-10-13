@@ -519,13 +519,16 @@ PAGE_INDEX = """<!doctype html>
   button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .toolbar { display:flex; gap:8px; align-items:center; margin:10px 0 12px; flex-wrap:wrap; }
   .toolbar button, .toolbar input, .toolbar select { font-size:15px; min-height:34px; padding:6px 10px; }
-  input[type="search"] { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); min-width:200px; width:min(360px,100%); background:var(--button-bg); color:var(--fg); }
+  input[type="search"] { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); min-width:180px; width:min(300px,100%); background:var(--button-bg); color:var(--fg); }
   input[type="search"]::placeholder { color: var(--muted); }
   input[type="text"], select { padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--button-bg); color:var(--fg); width:auto; max-width:100%; }
   select { min-width:180px; }
   button { padding:8px 12px; border-radius:var(--radius); border:1px solid var(--border); background:var(--button-bg); color:var(--fg); cursor:pointer; transition:background 0.2s, border-color 0.2s; }
   button:hover { background:var(--button-hover); border-color:var(--border-strong); }
   .toolbar .group { display:flex; gap:6px; align-items:center; flex-wrap:wrap; flex:1 1 200px; }
+  .toolbar .group.search-group { flex:1 1 220px; flex-wrap:nowrap; }
+  .toolbar .group.search-group input[type="search"] { flex:1 1 auto; min-width:0; width:auto; }
+  .toolbar .group.search-group button { flex:0 0 auto; width:auto; white-space:nowrap; }
   .list { display:flex; flex-direction:column; gap:8px; }
   .item { display:flex; justify-content:space-between; align-items:center; border:1px solid var(--border); border-radius:var(--radius); padding: var(--pad); background:var(--card-bg); transition:background 0.2s, border-color 0.2s; gap:16px; }
   .left { display:flex; flex-direction:column; gap:4px; }
@@ -548,8 +551,12 @@ PAGE_INDEX = """<!doctype html>
     header > div { width:100%; justify-content:flex-start; flex-wrap:wrap; }
     .toolbar { flex-direction:column; align-items:stretch; }
     .toolbar .group { width:100%; }
-    .toolbar .group > * { flex:1 1 auto; }
+    .toolbar .group > * { flex:1 1 auto; width:100%; }
     input[type="search"], select, button { width:100%; }
+    .toolbar .group.search-group { flex-wrap:nowrap; }
+    .toolbar .group.search-group > * { width:auto; flex:0 0 auto; }
+    .toolbar .group.search-group input[type="search"] { flex:1 1 auto; width:auto; }
+    .toolbar .group.search-group button { flex:0 0 auto; }
     .list { gap:12px; }
     .item { flex-direction:column; align-items:stretch; }
     .right { width:100%; justify-content:flex-start; }
@@ -571,7 +578,7 @@ PAGE_INDEX = """<!doctype html>
   </header>
 
   <div class="toolbar main-controls">
-      <div class="group">
+      <div class="group search-group">
         <input id="q" type="search" placeholder="Suche nach Titel/Datei …" autocomplete="off" />
         <button id="clearBtn" title="Suche löschen">✖</button>
       </div>
@@ -937,6 +944,12 @@ PAGE_SETTINGS = """<!doctype html>
   .ok { color:var(--ok); }
   .err { color:var(--err); font-weight:600; }
   label { min-width: 200px; display:inline-block; }
+  .category-list { list-style:none; margin:8px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:8px; }
+  .category-pill { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; background:var(--card-alt); border:1px solid var(--border); }
+  .category-pill span { font-size:14px; }
+  .category-pill .tagDelete { min-height:0; padding:4px 8px; border-radius:999px; border:1px solid transparent; background:transparent; color:var(--muted); font-size:14px; line-height:1; }
+  .category-pill .tagDelete:hover { color:var(--err); border-color:var(--border-strong); background:var(--button-hover); }
+  .category-pill .tagDelete:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   @media (hover: none) {
     a.btn:hover, button.btn:hover, button:hover { background:var(--button-bg); border-color:var(--border); }
   }
@@ -1053,6 +1066,7 @@ PAGE_SETTINGS = """<!doctype html>
       <button id="addCategoryBtn">➕ Hinzufügen</button>
     </div>
     <p class="hint" id="categoryListHint">Noch keine Kategorien vorhanden.</p>
+    <ul class="category-list" id="categoryList" aria-live="polite"></ul>
     <div class="hint" id="categoryMsg"></div>
   </div>
 
@@ -1118,16 +1132,49 @@ const closedAngle=document.getElementById('closedAngle'), openAngle=document.get
 const servoGpioSel=document.getElementById('servoGpioSel'), powerGpioSel=document.getElementById('powerGpioSel'), saveGpio=document.getElementById('saveGpio'), gpioMsg=document.getElementById('gpioMsg');
 const soundDir=document.getElementById('soundDir'), configPath=document.getElementById('configPath'), savePaths=document.getElementById('savePaths'), pathsMsg=document.getElementById('pathsMsg');
 const newCategory=document.getElementById('newCategory'), addCategoryBtn=document.getElementById('addCategoryBtn');
-const categoryListHint=document.getElementById('categoryListHint'), categoryMsg=document.getElementById('categoryMsg');
+const categoryListHint=document.getElementById('categoryListHint'), categoryMsg=document.getElementById('categoryMsg'), categoryList=document.getElementById('categoryList');
 const dbg=document.getElementById('dbg'), lastErr=document.getElementById('lastErr'), devMsg=document.getElementById('devMsg');
 let currentCategories=[];
 
+function sanitizeCategories(list){
+  const out=[];
+  if(Array.isArray(list)){
+    for(const raw of list){
+      if(typeof raw!== 'string') continue;
+      const trimmed=raw.trim();
+      if(!trimmed) continue;
+      if(out.some(existing=>existing.toLowerCase()===trimmed.toLowerCase())) continue;
+      out.push(trimmed);
+    }
+  }
+  out.sort((a,b)=>a.localeCompare(b,'de',{sensitivity:'base'}));
+  return out;
+}
+
 function renderCategoryList(){
-  if(!categoryListHint) return;
-  if(!currentCategories.length){
-    categoryListHint.textContent='Noch keine Kategorien vorhanden.';
-  }else{
-    categoryListHint.textContent='Vorhandene Kategorien ('+currentCategories.length+'): '+currentCategories.join(', ');
+  if(categoryListHint){
+    if(!currentCategories.length){
+      categoryListHint.textContent='Noch keine Kategorien vorhanden.';
+    }else{
+      categoryListHint.textContent='Vorhandene Kategorien ('+currentCategories.length+')';
+    }
+  }
+  if(!categoryList) return;
+  categoryList.innerHTML='';
+  for(const cat of currentCategories){
+    const li=document.createElement('li');
+    li.className='category-pill';
+    const label=document.createElement('span');
+    label.textContent=cat;
+    li.appendChild(label);
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='tagDelete';
+    btn.dataset.category=cat;
+    btn.setAttribute('aria-label', `Kategorie "${cat}" löschen`);
+    btn.textContent='✖';
+    li.appendChild(btn);
+    categoryList.appendChild(li);
   }
 }
 
@@ -1135,7 +1182,11 @@ function setCategoryStatus(text, ok){
   if(!categoryMsg) return;
   if(!text){ categoryMsg.textContent=''; categoryMsg.className='hint'; return; }
   categoryMsg.textContent=text;
-  categoryMsg.className='hint ' + (ok ? 'ok' : 'err');
+  if(ok === undefined){
+    categoryMsg.className='hint';
+  }else{
+    categoryMsg.className='hint ' + (ok ? 'ok' : 'err');
+  }
 }
 
 async function loadCategoriesCard(){
@@ -1144,14 +1195,43 @@ async function loadCategoriesCard(){
     const res=await fetch('/categories');
     const j=await res.json();
     if(!res.ok || !j.ok) throw new Error(j.error||'Kategorien konnten nicht geladen werden');
-    currentCategories=Array.isArray(j.categories)?j.categories:[];
-    currentCategories=currentCategories.filter(c=>typeof c==='string'&&c.trim()).map(c=>c.trim());
-    currentCategories.sort((a,b)=>a.localeCompare(b,'de',{sensitivity:'base'}));
+    currentCategories=sanitizeCategories(j.categories||[]);
     renderCategoryList();
-    setCategoryStatus('', true);
+    setCategoryStatus('');
   }catch(e){
     setCategoryStatus(e.message||'Kategorien konnten nicht geladen werden', false);
   }
+}
+
+async function deleteCategory(name, triggerBtn){
+  if(!name) return;
+  if(typeof window.confirm==='function'){
+    const proceed = window.confirm(`Kategorie "${name}" wirklich löschen?\nZugeordnete Sounds verlieren diese Kategorie.`);
+    if(!proceed) return;
+  }
+  if(triggerBtn) triggerBtn.disabled=true;
+  setCategoryStatus('Kategorie wird gelöscht …');
+  try{
+    const res=await fetch(`/categories/${encodeURIComponent(name)}`, {method:'DELETE'});
+    const j=await res.json();
+    if(!res.ok || !j.ok) throw new Error(j.error||'Kategorie konnte nicht gelöscht werden');
+    currentCategories=sanitizeCategories(j.categories||[]);
+    renderCategoryList();
+    setCategoryStatus(`Kategorie "${name}" gelöscht`, true);
+  }catch(e){
+    setCategoryStatus(e.message||'Kategorie konnte nicht gelöscht werden', false);
+  }finally{
+    if(triggerBtn) triggerBtn.disabled=false;
+  }
+}
+
+if(categoryList){
+  categoryList.addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('button.tagDelete');
+    if(!btn || !btn.dataset.category) return;
+    ev.preventDefault();
+    deleteCategory(btn.dataset.category, btn);
+  });
 }
 
 function fillGpioSelect(sel, value){ sel.innerHTML=""; const opts=[null,2,3,4,5,6,7,8,9,10,11,12,13,16,17,18,19,20,21,22,23,24,25,26,27]; for(const v of opts){ const o=document.createElement('option'); o.value=(v===null)?"None":String(v); o.textContent=(v===null)?"None":String(v); if((value===null&&v===null)||(value!==null&&String(value)===String(v))) o.selected=true; sel.appendChild(o);} }
@@ -1177,18 +1257,11 @@ if(addCategoryBtn) addCategoryBtn.onclick=async()=>{
   if(!name){ setCategoryStatus('Bitte Namen eingeben', false); newCategory.focus(); return; }
   try{
     const j=await fetchJSON('/categories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
-    let updated=[];
-    if(Array.isArray(j.categories)){
-      updated=j.categories;
-    }else{
-      updated=[...currentCategories, name];
-    }
-    currentCategories=updated.filter(c=>typeof c==='string'&&c.trim()).map(c=>c.trim());
-    currentCategories=currentCategories.filter((v,i,arr)=>arr.indexOf(v)===i);
-    currentCategories.sort((a,b)=>a.localeCompare(b,'de',{sensitivity:'base'}));
+    const updated=Array.isArray(j.categories)?j.categories:[...currentCategories, name];
+    currentCategories=sanitizeCategories(updated);
     renderCategoryList();
     newCategory.value='';
-    setCategoryStatus('Kategorie erstellt', true);
+    setCategoryStatus(`Kategorie "${name}" erstellt`, true);
   }catch(e){
     setCategoryStatus(e.message||'Kategorie konnte nicht gespeichert werden', false);
   }
@@ -1838,6 +1911,35 @@ def categories_post():
     cfg["categories"].append(name)
     save_config()
     return jsonify(ok=True, categories=cfg["categories"], assignments=cfg["file_categories"])
+
+@app.delete("/categories/<path:name>")
+def categories_delete(name):
+    _ensure_category_structures()
+    cname = _normalize_category_name(name)
+    if not cname:
+        return jsonify(error="Kategorie nicht gefunden"), 404
+    target = None
+    for existing in cfg["categories"]:
+        if existing.lower() == cname.lower():
+            target = existing
+            break
+    if target is None:
+        return jsonify(error="Kategorie nicht gefunden"), 404
+
+    target_lower = target.lower()
+    cfg["categories"] = [c for c in cfg["categories"] if c.lower() != target_lower]
+
+    for fn, cats in list(cfg["file_categories"].items()):
+        if not isinstance(cats, list):
+            continue
+        remaining = [c for c in cats if c.lower() != target_lower]
+        if remaining:
+            cfg["file_categories"][fn] = remaining
+        else:
+            cfg["file_categories"].pop(fn, None)
+
+    save_config()
+    return jsonify(ok=True, categories=cfg["categories"], assignments=cfg["file_categories"], removed=target)
 
 @app.post("/file-category")
 def file_category_post():
