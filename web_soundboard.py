@@ -1009,9 +1009,12 @@ if(list) list.addEventListener('change', async (e)=>{
   const file=sel.dataset.file;
   const prev=normalizeCategoriesList(assignments[file]);
   try{
-    let selectedValues=[...sel.options].filter(o=>o.selected).map(o=>o.value);
-    if(selectedValues.includes('')) selectedValues=[];
-    selectedValues=selectedValues.filter(v=>v);
+    const options=[...sel.options];
+    const noneOpt=options.find(o=>o.value==='');
+    let selectedValues=options.filter(o=>o.selected && o.value!=='').map(o=>o.value);
+    if(selectedValues.length>0 && noneOpt && noneOpt.selected){
+      noneOpt.selected=false;
+    }
     const res=await fetch('/file-category',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file, categories: selectedValues})});
     const j=await res.json();
     if(!res.ok || !j.ok) throw new Error(j.error||'Kategorie konnte nicht gespeichert werden');
