@@ -54,7 +54,7 @@ except Exception:
 #   Konfiguration
 # =========================
 SOUND_DIR   = Path("/opt/MP3-Soundboard")
-CONFIG_PATH = Path("/opt/Soundboard/web_soundboard_config.json")
+CONFIG_PATH = Path("/opt/configs/web_soundboard_config.json")
 HOST, PORT  = "0.0.0.0", 8080
 
 SERVO_US_MIN = 500
@@ -1223,7 +1223,7 @@ PAGE_SETTINGS = """<!doctype html>
     </div>
     <div class="row">
       <label for="configPath">CONFIG_PATH:</label>
-      <input id="configPath" type="text" placeholder="/opt/Soundboard/web_soundboard_config.json" style="min-width:360px;" />
+      <input id="configPath" type="text" placeholder="/opt/configs/web_soundboard_config.json" style="min-width:360px;" />
     </div>
     <div class="row">
       <button id="savePaths">Speichern</button>
