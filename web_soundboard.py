@@ -22,7 +22,7 @@ Voraussetzungen
   sudo systemctl enable --now pigpio
 
 Start
-  python3 /opt/python/web_soundboard_fx.py
+  python3 /opt/Soundboard/web_soundboard.py
   Browser: http://<Pi-IP>:8080
 """
 
