@@ -30,7 +30,7 @@ import os, sys, re, json, shlex, signal, subprocess, threading, time, argparse, 
 from collections import deque
 from pathlib import Path
 
-from flask import Flask, request, jsonify, render_template_string, abort
+from flask import Flask, request, jsonify, render_template_string, abort, send_file
 from werkzeug.utils import secure_filename
 
 import numpy as np
@@ -582,10 +582,12 @@ PAGE_INDEX = """<!doctype html>
   .meta { font-size:12px; color:var(--muted); }
   .meta.ok { color:var(--ok); }
   .meta.err { color:var(--err); }
-  .right { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  .right { display:flex; gap:12px; align-items:stretch; flex-wrap:wrap; justify-content:space-between; }
   .right .catSelect { min-width:200px; min-height:110px; width: min(320px, 100%); }
+  .right .actions { display:flex; gap:8px; align-items:center; justify-content:center; flex:1 1 160px; }
   .catLabel { font-size:12px; color:var(--muted); }
   .err { color:var(--err); font-weight:600; }
+  .item.previewing { outline:2px dashed var(--accent); }
   @media (hover: none) {
     a.btn:hover, button.btn:hover, button:hover { background:var(--button-bg); border-color:var(--border); }
   }
@@ -607,6 +609,7 @@ PAGE_INDEX = """<!doctype html>
     .item { flex-direction:column; align-items:stretch; }
     .right { width:100%; justify-content:flex-start; }
     .right .catSelect { width:100%; }
+    .right .actions { width:100%; }
   }
   @media (max-width: 520px) {
     body { margin: 12px 10px; }
@@ -663,7 +666,10 @@ PAGE_INDEX = """<!doctype html>
               <option value="{{cat|e}}" {% if s.categories and cat in s.categories %}selected{% endif %}>{{cat}}</option>
             {% endfor %}
           </select>
-          <button class="playBtn" data-file="{{s.file|e}}">▶ Abspielen</button>
+          <div class="actions">
+            <button class="previewBtn" data-file="{{s.file|e}}">🎧 Vorschau</button>
+            <button class="playBtn" data-file="{{s.file|e}}">🔊 Abspielen</button>
+          </div>
         </div>
       </div>
     {% endfor %}
@@ -730,6 +736,9 @@ const meta=document.getElementById('meta');
 const stopBtn=document.getElementById('stopBtn');
 const errorLabel=document.getElementById('errorLabel');
 const devLabel=document.getElementById('devLabel');
+const previewPlayer=new Audio();
+previewPlayer.preload='none';
+let previewingFile=null;
 
 let categories={{ categories|tojson }};
 let assignments={{ assignments|tojson }};
@@ -791,6 +800,19 @@ function setUploadMsg(text, ok){
   if(!text){ uploadMsg.textContent=''; uploadMsg.className='meta'; return; }
   uploadMsg.textContent=text;
   uploadMsg.className='meta ' + (ok ? 'ok' : 'err');
+}
+function markPreviewing(file){
+  document.querySelectorAll('.item').forEach(el=>{
+    if(file && el.dataset.file===file) el.classList.add('previewing');
+    else el.classList.remove('previewing');
+  });
+}
+function stopPreview(){
+  previewPlayer.pause();
+  previewPlayer.removeAttribute('src');
+  previewPlayer.load();
+  previewingFile=null;
+  markPreviewing(null);
 }
 async function performUpload(){
   if(!uploadInput) return;
@@ -923,6 +945,7 @@ function markPlaying(file){
 }
 async function play(file){
   if(!file) return;
+  stopPreview();
   if(errorLabel) errorLabel.textContent="";
   setBusy(true, "Spiele: "+file);
   try{
@@ -936,13 +959,50 @@ async function stop(){
   setBusy(true,"Stoppe…"); try{ await fetch('/stop',{method:'POST'});}catch(e){}
   setBusy(false,"Bereit"); markPlaying("__none__");
 }
+function preview(file){
+  if(!file) return;
+  const encoded=encodeURIComponent(file);
+  if(previewingFile===file && !previewPlayer.paused){
+    stopPreview();
+    if(meta) meta.textContent='Bereit';
+    return;
+  }
+  previewPlayer.pause();
+  markPreviewing(null);
+  previewPlayer.src=`/preview/${encoded}`;
+  previewPlayer.load();
+  previewPlayer.play().then(()=>{
+    previewingFile=file;
+    markPreviewing(file);
+    if(meta) meta.textContent=`Vorschau: ${file}`;
+  }).catch(err=>{
+    stopPreview();
+    if(meta) meta.textContent=`Vorschau fehlgeschlagen: ${err && err.message ? err.message : err}`;
+  });
+}
+previewPlayer.addEventListener('ended', ()=>{
+  stopPreview();
+  if(meta) meta.textContent='Bereit';
+});
+previewPlayer.addEventListener('pause', ()=>{
+  if(previewPlayer.currentTime===0){
+    markPreviewing(null);
+    previewingFile=null;
+  }
+});
 if(q) q.addEventListener('input', applyFilter);
 if(clearBtn) clearBtn.addEventListener('click', ()=>{ if(q){ q.value=""; applyFilter(); q.focus(); } });
 if(catFilter) catFilter.addEventListener('change', applyFilter);
 if(stopBtn) stopBtn.addEventListener('click', stop);
 if(uploadBtn) uploadBtn.addEventListener('click', performUpload);
 if(uploadInput) uploadInput.addEventListener('change', ()=>{ if(uploadInput.files && uploadInput.files.length){ setUploadMsg('', true); } });
-if(list) list.addEventListener('click', (e)=>{ const btn=e.target.closest('.playBtn'); if(!btn) return; play(btn.dataset.file); });
+if(list) list.addEventListener('click', (e)=>{
+  const previewBtn=e.target.closest('.previewBtn');
+  if(previewBtn){ e.preventDefault(); preview(previewBtn.dataset.file); return; }
+  const btn=e.target.closest('.playBtn');
+  if(!btn) return;
+  play(btn.dataset.file);
+});
 if(list) list.addEventListener('change', async (e)=>{
   const sel=e.target.closest('.catSelect');
   if(!sel) return;
@@ -1907,6 +1967,17 @@ def upload_mp3():
             except Exception: pass
         return jsonify(error="Upload fehlgeschlagen."), 500
     return jsonify(ok=True, file=target.name)
+
+@app.get("/preview/<path:filename>")
+def preview_file(filename):
+    base = SOUND_DIR.resolve()
+    try:
+        target = (base / filename).resolve()
+    except Exception:
+        abort(404)
+    if target.suffix.lower() != ".mp3" or not target.is_file() or base not in target.parents:
+        abort(404)
+    return send_file(target, mimetype="audio/mpeg", conditional=True)
 
 @app.get("/volume")
 def volume_get():
