@@ -53,8 +53,8 @@ except Exception:
 # =========================
 #   Konfiguration
 # =========================
-SOUND_DIR   = Path("/opt/python/sounds")
-CONFIG_PATH = Path("/opt/python/web_soundboard_config.json")
+SOUND_DIR   = Path("/opt/MP3-Soundboard")
+CONFIG_PATH = Path("/opt/Soundboard/web_soundboard_config.json")
 HOST, PORT  = "0.0.0.0", 8080
 
 SERVO_US_MIN = 500
