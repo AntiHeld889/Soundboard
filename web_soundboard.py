@@ -57,6 +57,45 @@ SOUND_DIR   = Path("/opt/MP3-Soundboard")
 CONFIG_PATH = Path("/opt/Soundboard/web_soundboard_config.json")
 HOST, PORT  = "0.0.0.0", 8080
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+SOUND_DIR_OVERRIDE_FILE = SCRIPT_DIR / ".sound_dir_override"
+CONFIG_PATH_OVERRIDE_FILE = SCRIPT_DIR / ".config_path_override"
+
+
+def _read_override(path_file):
+    try:
+        txt = path_file.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        print(f"Warnung: Override-Datei {path_file} konnte nicht gelesen werden: {e}", file=sys.stderr)
+        return None
+    if not txt:
+        return None
+    try:
+        return Path(txt).expanduser()
+    except Exception as e:
+        print(f"Warnung: Override-Pfad {txt!r} ungültig: {e}", file=sys.stderr)
+        return None
+
+
+def _load_path_overrides():
+    global SOUND_DIR, CONFIG_PATH
+    sd = _read_override(SOUND_DIR_OVERRIDE_FILE)
+    if sd is not None:
+        SOUND_DIR = sd
+    cp = _read_override(CONFIG_PATH_OVERRIDE_FILE)
+    if cp is not None:
+        CONFIG_PATH = cp
+
+
+def _write_override(path_file, value: Path):
+    try:
+        path_file.parent.mkdir(parents=True, exist_ok=True)
+        path_file.write_text(str(value), encoding="utf-8")
+    except Exception as e:
+        print(f"Warnung: Override-Datei {path_file} konnte nicht geschrieben werden: {e}", file=sys.stderr)
+
 SERVO_US_MIN = 500
 SERVO_US_MAX = 2500
 
@@ -169,24 +208,45 @@ def _merge_defaults(d, defaults):
     return d
 
 def load_config():
-    global cfg
+    global cfg, SOUND_DIR, CONFIG_PATH
     if CONFIG_PATH.exists():
         try:
             with CONFIG_PATH.open("r", encoding="utf-8") as f:
                 cfg.update(json.load(f))
         except Exception as e:
             set_last_error(f"Config lesen fehlgeschlagen ({CONFIG_PATH}): {e}")
+    # Pfade aus der Config anwenden (falls vorhanden)
+    cfg_sound_dir = cfg.get("sound_dir")
+    if cfg_sound_dir:
+        try:
+            SOUND_DIR = Path(cfg_sound_dir).expanduser()
+        except Exception as e:
+            set_last_error(f"SOUND_DIR in Config ungültig: {e}")
+    cfg_config_path = cfg.get("config_path")
+    if cfg_config_path:
+        try:
+            CONFIG_PATH = Path(cfg_config_path).expanduser()
+        except Exception as e:
+            set_last_error(f"CONFIG_PATH in Config ungültig: {e}")
     _normalize_gpio_in_cfg()
     cfg.setdefault("categories", [])
     cfg["file_categories"] = _normalized_assignment_map(cfg.get("file_categories", {}))
     cfg["live_config"] = _merge_defaults(cfg.get("live_config", {}), DEFAULT_CONFIG["live_config"])
     cfg.setdefault("soundboard_title", DEFAULT_CONFIG["soundboard_title"])
+    cfg["sound_dir"] = str(SOUND_DIR)
+    cfg["config_path"] = str(CONFIG_PATH)
+    _write_override(SOUND_DIR_OVERRIDE_FILE, SOUND_DIR)
+    _write_override(CONFIG_PATH_OVERRIDE_FILE, CONFIG_PATH)
 
 def save_config():
     try:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        cfg["sound_dir"] = str(SOUND_DIR)
+        cfg["config_path"] = str(CONFIG_PATH)
         with CONFIG_PATH.open("w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
+        _write_override(SOUND_DIR_OVERRIDE_FILE, SOUND_DIR)
+        _write_override(CONFIG_PATH_OVERRIDE_FILE, CONFIG_PATH)
     except Exception as e:
         set_last_error(f"Config speichern fehlgeschlagen ({CONFIG_PATH}): {e}")
 
@@ -1998,6 +2058,8 @@ def paths_post():
             nd = Path(new_sd).expanduser().resolve()
             nd.mkdir(parents=True, exist_ok=True)
             SOUND_DIR = nd
+            cfg["sound_dir"] = str(SOUND_DIR)
+            _write_override(SOUND_DIR_OVERRIDE_FILE, SOUND_DIR)
         except Exception as e:
             return jsonify(error=f"SOUND_DIR ungültig/nicht anlegbar: {e}"), 400
     if new_cp:
@@ -2005,6 +2067,8 @@ def paths_post():
             npth = Path(new_cp).expanduser().resolve()
             npth.parent.mkdir(parents=True, exist_ok=True)
             CONFIG_PATH = npth
+            cfg["config_path"] = str(CONFIG_PATH)
+            _write_override(CONFIG_PATH_OVERRIDE_FILE, CONFIG_PATH)
         except Exception as e:
             return jsonify(error=f"CONFIG_PATH ungültig: {e}"), 400
     save_config(); ensure_dirs()
@@ -2585,8 +2649,10 @@ if __name__ == "__main__":
         live_main(argv)
         sys.exit(0)
 
+    _load_path_overrides()
     ensure_dirs()
     load_config()
+    ensure_dirs()
     for k, v in DEFAULT_CONFIG.items():
         if k not in cfg:
             cfg[k] = v
