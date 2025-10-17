@@ -1118,11 +1118,11 @@ PAGE_SETTINGS = """<!doctype html>
     <h3>Pfade</h3>
     <div class="row">
       <label for="soundDir">SOUND_DIR:</label>
-      <input id="soundDir" type="text" placeholder="/opt/python/sounds" style="min-width:360px;" />
+      <input id="soundDir" type="text" placeholder="/opt/MP3-Soundboard" style="min-width:360px;" />
     </div>
     <div class="row">
       <label for="configPath">CONFIG_PATH:</label>
-      <input id="configPath" type="text" placeholder="/opt/python/web_soundboard_config.json" style="min-width:360px;" />
+      <input id="configPath" type="text" placeholder="/opt/Soundboard/web_soundboard_config.json" style="min-width:360px;" />
     </div>
     <div class="row">
       <button id="savePaths">Speichern</button>
