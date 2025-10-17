@@ -667,8 +667,8 @@ PAGE_INDEX = """<!doctype html>
             {% endfor %}
           </select>
           <div class="actions">
-            <button class="previewBtn" data-file="{{s.file|e}}">🔊 Vorschau</button>
-            <button class="playBtn" data-file="{{s.file|e}}">▶ Abspielen</button>
+            <button class="previewBtn" data-file="{{s.file|e}}">🎧 Vorschau</button>
+            <button class="playBtn" data-file="{{s.file|e}}">🔊 Abspielen</button>
           </div>
         </div>
       </div>
