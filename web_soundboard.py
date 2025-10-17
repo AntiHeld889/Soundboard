@@ -77,6 +77,8 @@ DEFAULT_CONFIG = {
     "alsa_card_index": 1,
     "soundboard_title": DEFAULT_TITLE,
     "mixer_candidates": ["Speaker", "PCM", "Master", "Headphone"],
+    "sound_dir": str(SOUND_DIR),
+    "config_path": str(CONFIG_PATH),
 
     # Kategorien
     "categories": [],
@@ -168,23 +170,59 @@ def _merge_defaults(d, defaults):
             _merge_defaults(d[k], v)
     return d
 
+def _apply_path_settings_from_cfg():
+    global SOUND_DIR, CONFIG_PATH
+
+    sd = cfg.get("sound_dir")
+    if isinstance(sd, str) and sd.strip():
+        try:
+            nd = Path(sd).expanduser()
+            nd.mkdir(parents=True, exist_ok=True)
+            SOUND_DIR = nd.resolve()
+            cfg["sound_dir"] = str(SOUND_DIR)
+        except Exception as e:
+            set_last_error(f"sound_dir ungültig: {e}")
+            cfg["sound_dir"] = str(SOUND_DIR)
+    else:
+        cfg["sound_dir"] = str(SOUND_DIR)
+
+    cp = cfg.get("config_path")
+    if isinstance(cp, str) and cp.strip():
+        try:
+            npth = Path(cp).expanduser()
+            npth.parent.mkdir(parents=True, exist_ok=True)
+            CONFIG_PATH = npth.resolve()
+            cfg["config_path"] = str(CONFIG_PATH)
+        except Exception as e:
+            set_last_error(f"config_path ungültig: {e}")
+            cfg["config_path"] = str(CONFIG_PATH)
+    else:
+        cfg["config_path"] = str(CONFIG_PATH)
+
 def load_config():
-    global cfg
+    global cfg, SOUND_DIR, CONFIG_PATH
     if CONFIG_PATH.exists():
         try:
             with CONFIG_PATH.open("r", encoding="utf-8") as f:
                 cfg.update(json.load(f))
         except Exception as e:
             set_last_error(f"Config lesen fehlgeschlagen ({CONFIG_PATH}): {e}")
+    else:
+        cfg.setdefault("sound_dir", str(SOUND_DIR))
+        cfg.setdefault("config_path", str(CONFIG_PATH))
     _normalize_gpio_in_cfg()
     cfg.setdefault("categories", [])
     cfg["file_categories"] = _normalized_assignment_map(cfg.get("file_categories", {}))
     cfg["live_config"] = _merge_defaults(cfg.get("live_config", {}), DEFAULT_CONFIG["live_config"])
     cfg.setdefault("soundboard_title", DEFAULT_CONFIG["soundboard_title"])
+    _apply_path_settings_from_cfg()
+    ensure_dirs()
 
 def save_config():
     try:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        cfg["sound_dir"] = str(SOUND_DIR)
+        cfg["config_path"] = str(CONFIG_PATH)
         with CONFIG_PATH.open("w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
     except Exception as e:
@@ -1998,6 +2036,7 @@ def paths_post():
             nd = Path(new_sd).expanduser().resolve()
             nd.mkdir(parents=True, exist_ok=True)
             SOUND_DIR = nd
+            cfg["sound_dir"] = str(SOUND_DIR)
         except Exception as e:
             return jsonify(error=f"SOUND_DIR ungültig/nicht anlegbar: {e}"), 400
     if new_cp:
@@ -2005,6 +2044,7 @@ def paths_post():
             npth = Path(new_cp).expanduser().resolve()
             npth.parent.mkdir(parents=True, exist_ok=True)
             CONFIG_PATH = npth
+            cfg["config_path"] = str(CONFIG_PATH)
         except Exception as e:
             return jsonify(error=f"CONFIG_PATH ungültig: {e}"), 400
     save_config(); ensure_dirs()
