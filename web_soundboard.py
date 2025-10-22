@@ -91,6 +91,9 @@ DEFAULT_CONFIG = {
     "closed_angle": 5,
     "open_angle": 65,
 
+    # MP3-Befehle
+    "mp3_command_bindings": [],
+
     # Live (Normal + FX)
     "live_config": {
         "mode": "fx",  # "normal" oder "fx"
@@ -213,6 +216,7 @@ def load_config():
     _normalize_gpio_in_cfg()
     cfg.setdefault("categories", [])
     cfg["file_categories"] = _normalized_assignment_map(cfg.get("file_categories", {}))
+    cfg["mp3_command_bindings"] = _normalize_mp3_command_bindings(cfg.get("mp3_command_bindings", []))
     cfg["live_config"] = _merge_defaults(cfg.get("live_config", {}), DEFAULT_CONFIG["live_config"])
     cfg.setdefault("soundboard_title", DEFAULT_CONFIG["soundboard_title"])
     _apply_path_settings_from_cfg()
@@ -255,6 +259,81 @@ def _normalized_assignment_map(raw):
         if normed:
             out[str(fn)] = normed
     return out
+
+
+def _normalize_mp3_command_bindings(raw):
+    result = []
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            file_name = str(item.get("file") or "").strip()
+            on_start = str(item.get("on_start") or "").strip()
+            on_end = str(item.get("on_end") or "").strip()
+            if not file_name:
+                if on_start or on_end:
+                    # Zeilen ohne Datei sind nicht nutzbar – ignorieren
+                    continue
+                continue
+            result.append({
+                "file": file_name,
+                "on_start": on_start,
+                "on_end": on_end,
+            })
+    return result
+
+
+def get_mp3_command_bindings():
+    bindings = _normalize_mp3_command_bindings(cfg.get("mp3_command_bindings", []))
+    cfg["mp3_command_bindings"] = bindings
+    return bindings
+
+
+def _get_mp3_bindings_for_file(filename):
+    if not filename:
+        return []
+    filename = str(filename)
+    return [entry for entry in get_mp3_command_bindings() if entry.get("file") == filename]
+
+
+def _run_shell_command_async(cmd_text, context):
+    if not cmd_text:
+        return
+    cmd = str(cmd_text).strip()
+    if not cmd:
+        return
+
+    def _runner():
+        try:
+            print(f"[mp3-command] {context}: {cmd}")
+            subprocess.run(cmd, shell=True, check=False)
+        except Exception as e:
+            set_last_error(f"Befehl fehlgeschlagen ({context}): {e}")
+
+    threading.Thread(target=_runner, daemon=True).start()
+
+
+def trigger_mp3_command(filename, when):
+    if when not in ("start", "end"):
+        return
+    for entry in _get_mp3_bindings_for_file(filename):
+        cmd = entry.get("on_start") if when == "start" else entry.get("on_end")
+        label = f"{filename}::{when}"
+        _run_shell_command_async(cmd, label)
+
+
+def monitor_mp3_process(proc, filename):
+    if not proc:
+        return
+
+    def _waiter():
+        try:
+            proc.wait()
+        except Exception:
+            pass
+        trigger_mp3_command(filename, "end")
+
+    threading.Thread(target=_waiter, daemon=True).start()
 
 
 def list_mp3s():
@@ -1111,6 +1190,12 @@ PAGE_SETTINGS = """<!doctype html>
   .category-pill .tagDelete { min-height:0; padding:4px 8px; border-radius:999px; border:1px solid transparent; background:transparent; color:var(--muted); font-size:14px; line-height:1; }
   .category-pill .tagDelete:hover { color:var(--err); border-color:var(--border-strong); background:var(--button-hover); }
   .category-pill .tagDelete:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .mp3-command-row { border:1px dashed var(--border); border-radius:var(--radius); padding:12px; margin:12px 0; background:var(--card-alt); }
+  .mp3-command-row .row { margin-bottom:8px; }
+  .mp3-command-row .row:last-child { margin-bottom:0; }
+  .mp3-command-actions { display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px; }
+  .icon-button { width:44px; height:44px; display:inline-flex; align-items:center; justify-content:center; font-size:22px; padding:0; }
+  .remove-row-btn { min-width:44px; }
   @media (hover: none) {
     a.btn:hover, button.btn:hover, button:hover { background:var(--button-bg); border-color:var(--border); }
   }
@@ -1244,6 +1329,19 @@ PAGE_SETTINGS = """<!doctype html>
   </div>
 
   <div class="card">
+    <h3>MP3-Befehle</h3>
+    <p class="hint">Wähle MP3-Dateien und optional Shell-Befehle für Start und Ende.</p>
+    <div class="mp3-command-actions">
+      <button type="button" id="addMp3CommandBtn" class="icon-button" title="MP3-Befehl hinzufügen" aria-label="Neue MP3-Zeile hinzufügen">➕</button>
+    </div>
+    <div id="mp3CommandRows" aria-live="polite"></div>
+    <div class="row">
+      <button id="saveMp3Commands">Speichern</button>
+      <span class="hint" id="mp3CommandMsg"></span>
+    </div>
+  </div>
+
+  <div class="card">
     <h3>Letzter Fehler</h3>
     <pre id="lastErr"></pre>
   </div>
@@ -1309,6 +1407,11 @@ const newCategory=document.getElementById('newCategory'), addCategoryBtn=documen
 const categoryListHint=document.getElementById('categoryListHint'), categoryMsg=document.getElementById('categoryMsg'), categoryList=document.getElementById('categoryList');
 const dbg=document.getElementById('dbg'), lastErr=document.getElementById('lastErr'), devMsg=document.getElementById('devMsg');
 let currentCategories=[];
+const mp3CommandRows=document.getElementById('mp3CommandRows');
+const addMp3CommandBtn=document.getElementById('addMp3CommandBtn');
+const saveMp3CommandsBtn=document.getElementById('saveMp3Commands');
+const mp3CommandMsg=document.getElementById('mp3CommandMsg');
+let availableMp3Files=[];
 
 function sanitizeCategories(list){
   const out=[];
@@ -1363,6 +1466,159 @@ function setCategoryStatus(text, ok){
   }
 }
 
+function setMp3CommandStatus(text, ok){
+  if(!mp3CommandMsg) return;
+  if(!text){ mp3CommandMsg.textContent=''; mp3CommandMsg.className='hint'; return; }
+  mp3CommandMsg.textContent=text;
+  if(ok === undefined){
+    mp3CommandMsg.className='hint';
+  }else{
+    mp3CommandMsg.className='hint ' + (ok ? 'ok' : 'err');
+  }
+}
+
+function displayLabelForFile(file){
+  if(!file) return '';
+  const stem=file.replace(/\.mp3$/i,'').replace(/_/g,' ');
+  if(stem && stem !== file){
+    return `${stem} (${file})`;
+  }
+  return file;
+}
+
+function populateMp3Select(sel, selected){
+  if(!sel) return;
+  const current=selected ?? sel.value ?? '';
+  sel.innerHTML='';
+  const placeholder=document.createElement('option');
+  placeholder.value='';
+  placeholder.textContent='— MP3 wählen —';
+  sel.appendChild(placeholder);
+  for(const entry of availableMp3Files){
+    if(!entry || !entry.file) continue;
+    const opt=document.createElement('option');
+    opt.value=entry.file;
+    const label=entry.name && entry.name !== entry.file ? `${entry.name} (${entry.file})` : displayLabelForFile(entry.file);
+    opt.textContent=label;
+    if(current && String(current)===String(opt.value)) opt.selected=true;
+    sel.appendChild(opt);
+  }
+}
+
+function createMp3CommandRow(data){
+  const wrapper=document.createElement('div');
+  wrapper.className='mp3-command-row';
+
+  const fileRow=document.createElement('div');
+  fileRow.className='row';
+  const fileLabel=document.createElement('label');
+  fileLabel.textContent='MP3:';
+  fileRow.appendChild(fileLabel);
+  const select=document.createElement('select');
+  select.className='mp3-command-select';
+  fileRow.appendChild(select);
+  const removeBtn=document.createElement('button');
+  removeBtn.type='button';
+  removeBtn.className='icon-button remove-row-btn';
+  removeBtn.setAttribute('aria-label','Zeile entfernen');
+  removeBtn.textContent='✖';
+  removeBtn.addEventListener('click',()=>{
+    wrapper.remove();
+    setMp3CommandStatus('');
+    if(mp3CommandRows && !mp3CommandRows.querySelector('.mp3-command-row')){
+      addMp3CommandRow();
+    }
+  });
+  fileRow.appendChild(removeBtn);
+  wrapper.appendChild(fileRow);
+
+  const startRow=document.createElement('div');
+  startRow.className='row';
+  const startLabel=document.createElement('label');
+  startLabel.textContent='Befehl bei Start:';
+  startRow.appendChild(startLabel);
+  const startInput=document.createElement('input');
+  startInput.type='text';
+  startInput.placeholder='z. B. gpio write 1 1';
+  startInput.className='mp3-command-start';
+  startRow.appendChild(startInput);
+  wrapper.appendChild(startRow);
+
+  const endRow=document.createElement('div');
+  endRow.className='row';
+  const endLabel=document.createElement('label');
+  endLabel.textContent='Befehl bei Ende:';
+  endRow.appendChild(endLabel);
+  const endInput=document.createElement('input');
+  endInput.type='text';
+  endInput.placeholder='z. B. gpio write 1 0';
+  endInput.className='mp3-command-end';
+  endRow.appendChild(endInput);
+  wrapper.appendChild(endRow);
+
+  if(data){
+    if(data.on_start) startInput.value=data.on_start;
+    if(data.on_end) endInput.value=data.on_end;
+  }
+  populateMp3Select(select, data && data.file ? data.file : '');
+  return wrapper;
+}
+
+function addMp3CommandRow(data){
+  if(!mp3CommandRows) return;
+  const row=createMp3CommandRow(data||{file:'', on_start:'', on_end:''});
+  mp3CommandRows.appendChild(row);
+}
+
+function setMp3CommandRows(list){
+  if(!mp3CommandRows) return;
+  mp3CommandRows.innerHTML='';
+  if(Array.isArray(list) && list.length){
+    for(const entry of list){
+      addMp3CommandRow(entry);
+    }
+  }else{
+    addMp3CommandRow();
+  }
+}
+
+function collectMp3CommandRows(){
+  if(!mp3CommandRows) return {bindings:[]};
+  const rows=Array.from(mp3CommandRows.querySelectorAll('.mp3-command-row'));
+  const bindings=[];
+  for(let i=0;i<rows.length;i++){
+    const row=rows[i];
+    const fileSel=row.querySelector('select.mp3-command-select');
+    const startInput=row.querySelector('.mp3-command-start');
+    const endInput=row.querySelector('.mp3-command-end');
+    if(!fileSel || !startInput || !endInput) continue;
+    const file=(fileSel.value||'').trim();
+    const on_start=startInput.value.trim();
+    const on_end=endInput.value.trim();
+    if(!file && !on_start && !on_end){
+      continue;
+    }
+    if(!file){
+      return {error:`Zeile ${i+1}: Bitte eine MP3 auswählen.`};
+    }
+    bindings.push({file, on_start, on_end});
+  }
+  return {bindings};
+}
+
+async function loadMp3CommandConfig(){
+  if(!mp3CommandRows) return;
+  try{
+    setMp3CommandStatus('Lade …');
+    const j=await fetchJSON('/mp3-command-config');
+    availableMp3Files=Array.isArray(j.files)?j.files:[];
+    setMp3CommandRows(Array.isArray(j.bindings)?j.bindings:[]);
+    setMp3CommandStatus('');
+  }catch(e){
+    setMp3CommandStatus(e.message||'MP3-Befehle konnten nicht geladen werden', false);
+  }
+}
+
 async function loadCategoriesCard(){
   if(!categoryListHint) return;
   try{
@@ -1406,6 +1662,34 @@ if(categoryList){
     ev.preventDefault();
     deleteCategory(btn.dataset.category, btn);
   });
+}
+
+if(addMp3CommandBtn){
+  addMp3CommandBtn.addEventListener('click', ()=>{
+    addMp3CommandRow();
+    setMp3CommandStatus('');
+  });
+}
+
+if(saveMp3CommandsBtn){
+  saveMp3CommandsBtn.addEventListener('click', async ()=>{
+    const result=collectMp3CommandRows();
+    if(result.error){
+      setMp3CommandStatus(result.error, false);
+      return;
+    }
+    try{
+      const j=await fetchJSON('/mp3-command-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bindings:result.bindings})});
+      setMp3CommandRows(Array.isArray(j.bindings)?j.bindings:result.bindings);
+      setMp3CommandStatus('Gespeichert', true);
+    }catch(e){
+      setMp3CommandStatus(e.message||'MP3-Befehle konnten nicht gespeichert werden', false);
+    }
+  });
+}
+
+if(mp3CommandRows){
+  mp3CommandRows.addEventListener('input', ()=>{ setMp3CommandStatus(''); });
 }
 
 function fillGpioSelect(sel, value){ sel.innerHTML=""; const opts=[null,2,3,4,5,6,7,8,9,10,11,12,13,16,17,18,19,20,21,22,23,24,25,26,27]; for(const v of opts){ const o=document.createElement('option'); o.value=(v===null)?"None":String(v); o.textContent=(v===null)?"None":String(v); if((value===null&&v===null)||(value!==null&&String(value)===String(v))) o.selected=true; sel.appendChild(o);} }
@@ -1468,7 +1752,7 @@ if(newCategory) newCategory.addEventListener('keydown', (ev)=>{ if(ev.key==='Ent
 
 async function loadLastError(){ const j=await fetchJSON('/last-error'); lastErr.textContent=(j.ts?("["+j.ts+"] "):"")+(j.msg||"—"); }
 async function loadAppConfig(){ const j=await fetchJSON('/app-config'); syncLead.value=j.sync_lead_ms??180; closedAngle.value=j.closed_angle??5; openAngle.value=j.open_angle??65; function fill(sel,val){ sel.innerHTML=""; const opts=[null,2,3,4,5,6,7,8,9,10,11,12,13,16,17,18,19,20,21,22,23,24,25,26,27]; for(const v of opts){ const o=document.createElement('option'); o.value=(v===null)?"None":String(v); o.textContent=o.value; if((val===null&&v===null)||(val!==null&&String(val)===String(v))) o.selected=true; sel.appendChild(o); } } fill(servoGpioSel,j.servo_gpio??null); fill(powerGpioSel,j.power_gpio??null); if(soundboardTitle) soundboardTitle.value=j.soundboard_title||''; if(titleMsg){ titleMsg.textContent=''; titleMsg.className='hint'; } soundDir.value=j.sound_dir||""; configPath.value=j.config_path||""; }
-window.addEventListener('DOMContentLoaded', async ()=>{ await loadDevices(); await loadVol(); await loadLastError(); await loadAppConfig(); await loadCategoriesCard(); });
+window.addEventListener('DOMContentLoaded', async ()=>{ await loadDevices(); await loadVol(); await loadLastError(); await loadAppConfig(); await loadMp3CommandConfig(); await loadCategoriesCard(); });
 </script>
 </body>
 </html>
@@ -2099,6 +2383,42 @@ def soundboard_title_post():
     return jsonify(ok=True, title=cfg["soundboard_title"])
 
 
+@app.get("/mp3-command-config")
+def mp3_command_config_get():
+    files = list_mp3s()
+    simple_files = [{"file": s["file"], "name": s.get("name", s["file"])} for s in files]
+    bindings = get_mp3_command_bindings()
+    return jsonify(ok=True, bindings=bindings, files=simple_files)
+
+
+@app.post("/mp3-command-config")
+def mp3_command_config_post():
+    data = request.get_json(silent=True) or {}
+    items = data.get("bindings", [])
+    if not isinstance(items, list):
+        return jsonify(error="'bindings' muss eine Liste sein"), 400
+
+    available = {s["file"] for s in list_mp3s()}
+    normalized = []
+    for idx, raw in enumerate(items, start=1):
+        if not isinstance(raw, dict):
+            continue
+        file_name = str(raw.get("file") or "").strip()
+        on_start = str(raw.get("on_start") or "").strip()
+        on_end = str(raw.get("on_end") or "").strip()
+        if not file_name:
+            if on_start or on_end:
+                return jsonify(error=f"Zeile {idx}: Bitte MP3 auswählen."), 400
+            continue
+        if file_name not in available:
+            return jsonify(error=f"Zeile {idx}: MP3 '{file_name}' nicht gefunden."), 400
+        normalized.append({"file": file_name, "on_start": on_start, "on_end": on_end})
+
+    cfg["mp3_command_bindings"] = normalized
+    save_config()
+    return jsonify(ok=True, bindings=normalized)
+
+
 @app.post("/paths")
 def paths_post():
     global SOUND_DIR, CONFIG_PATH
@@ -2435,6 +2755,8 @@ def play():
             pr = start_play(path)
             current_proc["p"] = pr
             current_proc["file"] = path.name
+            trigger_mp3_command(path.name, "start")
+            monitor_mp3_process(pr, path.name)
             try:
                 servo_open_close_by_envelope(pr, path, precomputed=precomputed)
             except Exception as e:
