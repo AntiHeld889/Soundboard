@@ -162,7 +162,7 @@ def _normalize_gpio_in_cfg():
             if t in ("", "none", "null"): cfg[k] = None
             else:
                 try: cfg[k] = int(t)
-                except: cfg[k] = None
+                except (ValueError, TypeError): cfg[k] = None
 
 def _merge_defaults(d, defaults):
     if d is None: return defaults
@@ -367,7 +367,8 @@ def aplay_list_devices():
             parts = line.split()
             try:
                 cur_card = int(parts[1].strip(":"))
-            except: cur_card = None
+            except (ValueError, IndexError, AttributeError):
+                cur_card = None
         if "device" in line and cur_card is not None:
             m = re.search(r"device\s+(\d+):\s+([^\[]+)\[([^\]]+)\]", line)
             if m:
@@ -382,7 +383,14 @@ def aplay_list_devices():
 
 def device_to_card_index(dev):
     m = re.match(r".*?(\d+),(\d+)", dev or "")
-    return int(m.group(1)) if m else cfg.get("alsa_card_index", 0)
+    if m:
+        return int(m.group(1))
+    # Ensure we always return an integer
+    fallback = cfg.get("alsa_card_index", 0)
+    try:
+        return int(fallback)
+    except (ValueError, TypeError):
+        return 0
 
 def find_working_control(card_index, candidates):
     for ctl in candidates:
@@ -557,6 +565,7 @@ def start_play(path: Path):
     candidates = [cfg["alsa_device"], "plughw:1,0", "default", "plughw:0,0", "plughw:2,0", "plughw:3,0"]
     last_err = None
     for dev in [d for d in candidates if d]:
+        proc = None
         try:
             cmd = ["mpg123","-q","-o","alsa","-a",dev,str(path)]
             last_cmd["text"] = " ".join(cmd)
@@ -566,17 +575,42 @@ def start_play(path: Path):
                 print(f"[audio] using device: {dev}")
                 print(f"[audio] cmd: {last_cmd['text']}")
                 return proc
+            # Process exited, clean up zombie
+            proc.wait()
             last_err = f"mpg123 exited immediately on {dev} (code={proc.returncode})"
         except Exception as e:
             last_err = f"Exception for {dev}: {e}"
+            # Clean up process if it was started
+            if proc is not None:
+                try:
+                    if proc.poll() is None:
+                        proc.terminate()
+                        proc.wait(timeout=1.0)
+                    else:
+                        proc.wait()
+                except Exception:
+                    pass
     raise RuntimeError(last_err or "Kein Ausgabegerät funktioniert (mpg123 endete sofort).")
 
 def stop_current():
     with play_lock:
         p = current_proc.get("p")
-        if p and p.poll() is None:
-            try: p.terminate()
-            except Exception: pass
+        if p:
+            try:
+                # Terminate if still running
+                if p.poll() is None:
+                    p.terminate()
+                    try:
+                        p.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        # Force kill if terminate didn't work
+                        p.kill()
+                        p.wait()
+                else:
+                    # Clean up zombie process
+                    p.wait()
+            except Exception:
+                pass
         current_proc["p"] = None
         current_proc["file"] = None
         stop_servo()
@@ -2281,8 +2315,10 @@ def volume_post():
     if isinstance(toggle, str): toggle = toggle.lower() in ("1","true","yes","on")
     toggle = bool(toggle)
     if v is not None:
-        try: v = int(v)
-        except: return jsonify(error="Ungültiger volume-Wert"), 400
+        try:
+            v = int(v)
+        except (ValueError, TypeError):
+            return jsonify(error="Ungültiger volume-Wert"), 400
     nv, nm, ctl = set_volume(vol=v, toggle_mute=toggle)
     if nv is None and nm is None and ctl is None:
         return jsonify(error="Mixer konnte nicht gesetzt/gelesen werden."), 500
@@ -2593,12 +2629,16 @@ def live_config_post():
         n = data["normal"]
         for k in ("samplerate","blocksize","input_device","output_device"):
             if k in n and n[k] is not None:
-                try: lc["normal"][k] = int(n[k])
-                except: return jsonify(error=f"normal.{k} ungültig"), 400
+                try:
+                    lc["normal"][k] = int(n[k])
+                except (ValueError, TypeError):
+                    return jsonify(error=f"normal.{k} ungültig"), 400
         for k in ("input_gain_db","output_gain_db"):
             if k in n and n[k] is not None:
-                try: lc["normal"][k] = float(n[k])
-                except: return jsonify(error=f"normal.{k} ungültig"), 400
+                try:
+                    lc["normal"][k] = float(n[k])
+                except (ValueError, TypeError):
+                    return jsonify(error=f"normal.{k} ungültig"), 400
         if "ultra_low_latency" in n:
             lc["normal"]["ultra_low_latency"] = bool(n["ultra_low_latency"])
 
@@ -2606,12 +2646,16 @@ def live_config_post():
         f = data["fx"]
         for k in ("samplerate","blocksize","input_device","sox_buffer_frames"):
             if k in f and f[k] is not None:
-                try: lc["fx"][k] = int(f[k])
-                except: return jsonify(error=f"fx.{k} ungültig"), 400
+                try:
+                    lc["fx"][k] = int(f[k])
+                except (ValueError, TypeError):
+                    return jsonify(error=f"fx.{k} ungültig"), 400
         for k in ("fx_pitch_semitones","fx_reverb","fx_bass_db","fx_treble_db","servo_delay_ms"):
             if k in f and f[k] is not None:
-                try: lc["fx"][k] = float(f[k])
-                except: return jsonify(error=f"fx.{k} ungültig"), 400
+                try:
+                    lc["fx"][k] = float(f[k])
+                except (ValueError, TypeError):
+                    return jsonify(error=f"fx.{k} ungültig"), 400
         if "alsa_out" in f and f["alsa_out"]:
             lc["fx"]["alsa_out"] = str(f["alsa_out"])
         if "ultra_low_latency" in f:
@@ -2639,13 +2683,20 @@ def live_log_get():
 @app.post("/live-stop")
 def live_stop():
     p = live_proc.get("p")
-    if p and p.poll() is None:
-        try: p.terminate()
-        except Exception: pass
-        try: p.wait(timeout=1.5)
+    if p:
+        try:
+            if p.poll() is None:
+                p.terminate()
+                try:
+                    p.wait(timeout=1.5)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                    p.wait()
+            else:
+                # Clean up zombie process
+                p.wait()
         except Exception:
-            try: p.kill()
-            except Exception: pass
+            pass
     live_proc["p"] = None
     live_proc["mode"] = None
     live_proc["args"] = None
@@ -2723,8 +2774,9 @@ def live_start():
         live_proc["args"] = base_args
         live_log.append(" ".join(shlex.quote(a) for a in base_args))
         def _reader():
-            for line in p.stdout:
-                live_log.append(line.rstrip())
+            if p.stdout:
+                for line in p.stdout:
+                    live_log.append(line.rstrip())
         threading.Thread(target=_reader, daemon=True).start()
         return jsonify(ok=True, pid=p.pid, mode=mode)
     except Exception as e:
@@ -2891,6 +2943,7 @@ def live_main(argv):
 
     # SoX vorbereiten (nur Modus fx)
     sox_proc = None
+    sox_proc_failed = False
     if args.mode == "fx":
         if not args.alsa_out:
             print("Mit Modus fx bitte --alsa_out angeben (z.B. plughw:1,0).", file=sys.stderr); close_out(); sys.exit(3)
@@ -2929,17 +2982,19 @@ def live_main(argv):
         set_angle(angle)
 
     def callback(indata, outdata, frames, time_info, status):
+        nonlocal sox_proc_failed
         if status: print(status, file=sys.stderr)
         block = indata
         mono = block.mean(axis=1).astype(np.float32) if block.ndim > 1 else block.astype(np.float32)
         mono = np.clip(mono * in_gain, -1.0, 1.0)
 
         if args.mode == "fx":
-            if sox_proc is not None and sox_proc.stdin:
+            if not sox_proc_failed and sox_proc is not None and sox_proc.stdin:
                 try:
                     sox_proc.stdin.write(mono.tobytes(order="C"))
                 except BrokenPipeError:
-                    pass
+                    sox_proc_failed = True
+                    print("SoX pipe broken, audio output stopped", file=sys.stderr)
         else:
             # Direkte Ausgabe über PortAudio
             if outdata is not None:
