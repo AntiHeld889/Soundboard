@@ -2276,7 +2276,12 @@ def volume_get():
 @app.post("/volume")
 def volume_post():
     data = request.get_json(silent=True) or {}
-    v = data.get("volume") or request.form.get("volume")
+    if "volume" in data:
+        v = data.get("volume")
+    elif "volume" in request.form:
+        v = request.form.get("volume")
+    else:
+        v = None
     toggle = data.get("toggle_mute") or request.form.get("toggle_mute")
     if isinstance(toggle, str): toggle = toggle.lower() in ("1","true","yes","on")
     toggle = bool(toggle)
