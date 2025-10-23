@@ -2720,6 +2720,21 @@ def live_start():
     if mode not in ("normal","fx"):
         return jsonify(error="mode muss 'normal' oder 'fx' sein"), 400
 
+    def _optional_int(value, fallback=None):
+        raw = value if value is not None else fallback
+        if raw is None:
+            return None
+        if isinstance(raw, str) and raw.strip().lower() in ("", "none", "null"):
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            raise ValueError
+
+    def _append_optional(args_list, flag, value):
+        if value is not None:
+            args_list += [flag, str(value)]
+
     base_args = ["python3", str(Path(__file__).resolve()), "--live",
                  "--closed_angle", str(cfg.get("closed_angle",5)),
                  "--open_angle",   str(cfg.get("open_angle",65)),
@@ -2731,24 +2746,30 @@ def live_start():
         N = cfg["live_config"]["normal"]
         samplerate = int(data.get("samplerate", N["samplerate"]))
         blocksize  = int(data.get("blocksize",  N["blocksize"]))
-        input_dev  = int(data.get("input_device",  N["input_device"] if N["input_device"] is not None else 0))
-        output_dev = int(data.get("output_device", N["output_device"] if N["output_device"] is not None else 0))
+        try:
+            input_dev  = _optional_int(data.get("input_device"),  N.get("input_device"))
+            output_dev = _optional_int(data.get("output_device"), N.get("output_device"))
+        except ValueError:
+            return jsonify(error="Ungültige Geräte-ID für Live (normal)"), 400
         in_gain    = float(data.get("input_gain_db",  N["input_gain_db"]))
         out_gain   = float(data.get("output_gain_db", N["output_gain_db"]))
         ull        = bool(data.get("ultra_low_latency", N["ultra_low_latency"]))
         base_args += ["--samplerate", str(samplerate),
                       "--blocksize",  str(blocksize),
-                      "--input_device",  str(input_dev),
-                      "--output_device", str(output_dev),
                       "--input_gain_db",  str(in_gain),
                       "--output_gain_db", str(out_gain),
                       "--mode", "normal"]
+        _append_optional(base_args, "--input_device", input_dev)
+        _append_optional(base_args, "--output_device", output_dev)
         if ull: base_args += ["--ultra_low_latency"]
     else:
         F = cfg["live_config"]["fx"]
         samplerate = int(data.get("samplerate", F["samplerate"]))
         blocksize  = int(data.get("blocksize",  F["blocksize"]))
-        input_dev  = int(data.get("input_device",  F["input_device"] if F["input_device"] is not None else 0))
+        try:
+            input_dev  = _optional_int(data.get("input_device"),  F.get("input_device"))
+        except ValueError:
+            return jsonify(error="Ungültige Geräte-ID für Live (fx)"), 400
         alsa_out   = str(data.get("alsa_out", F["alsa_out"] or cfg.get("alsa_device","plughw:1,0")))
         pitch      = float(data.get("fx_pitch_semitones", F["fx_pitch_semitones"]))
         reverb     = float(data.get("fx_reverb",          F["fx_reverb"]))
@@ -2760,7 +2781,6 @@ def live_start():
         base_args += [
             "--samplerate", str(samplerate),
             "--blocksize",  str(blocksize),
-            "--input_device",  str(input_dev),
             "--alsa_out", alsa_out,
             "--fx_pitch_semitones", str(pitch),
             "--fx_reverb", str(reverb),
@@ -2770,6 +2790,7 @@ def live_start():
             "--servo_delay_ms", str(sdelay),
             "--mode", "fx"
         ]
+        _append_optional(base_args, "--input_device", input_dev)
         if ull: base_args += ["--ultra_low_latency"]
 
     try:
